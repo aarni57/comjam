@@ -37,20 +37,121 @@ void set_text_cursor(uint8_t row, uint8_t col);
 "int 10h" \
 parm [dh] [dl];
 
+static uint16_t opl_base = 0x388;
+
+static inline void opl_write(uint8_t reg, uint8_t v) {
+    outp(opl_base, reg);
+    inp(opl_base);
+    outp(opl_base + 1, v);
+    inp(opl_base);
+
+#if 0
+    if (opl == 3) {
+        outp(opl_base + 2, reg);
+        inp(opl_base);
+        outp(opl_base + 2 + 1, v);
+        inp(opl_base);
+    }
+#endif
+}
+
+static void opl_reset() {
+    uint8_t i;
+    for (i = 0x01; i <= 0xf5; i++) {
+        opl_write(i, 0);
+    }
+}
+
+static void opl_init() {
+    uint8_t val1, val2;
+
+    // Reset timer 1 and 2
+    opl_write(0x4, 0x60);
+
+    // Reset IRQ
+    opl_write(0x4, 0x80);
+
+    // Read status
+    val1 = inp(opl_base);
+
+    // Set timer 1 to 0xff
+    opl_write(0x2, 0xff);
+
+    // Start timer 1
+    opl_write(0x4, 0x21);
+
+    // Delay for more than 80us, pick 10ms
+    delay(10);
+
+    // Read status
+    val2 = inp(opl_base);
+
+    // Reset timer 1 and 2
+    opl_write(0x4, 0x60);
+
+    // Reset IRQ
+    opl_write(0x4, 0x80);
+
+    if ((val1 & 0xe0) != 0x00 || (val2 & 0xe0) != 0xc0) {
+        return;
+    }
+
+#if 0
+    // OPL3 detection (not used)
+    val1 = inp(opl_base);
+
+    if ((val1 & 0x06) == 0x00) {
+        opl = 3;
+    } else {
+        opl = 2;
+    }
+#endif
+
+    opl_reset();
+    opl_write(0x01, 0x20);
+    opl_write(0x08, 0x40);
+}
+
+static void opl_done() {
+    opl_reset();
+}
+
+static void opl_play() {
+    uint8_t voice = 0;
+
+    opl_write(0xb0, 0);
+
+    opl_write(0x20, 0x01); // Set the modulator's multiple
+    opl_write(0x40, 0x10); // Set the modulator's level
+    opl_write(0x60, 0xf1); // Modulator attack & decay
+    opl_write(0x80, 0x17); // Modulator sustain & release
+    opl_write(0xa0, 0x98); // Set voice frequency's LSB
+    opl_write(0x23, 0x01); // Set the carrier's multiple
+    opl_write(0x43, 0x00); // Set the carrier to maximum volume
+    opl_write(0x63, 0xf1); // Carrier attack & decay
+    opl_write(0x83, 0x17); // Carrier sustain & release
+    opl_write(0xb0, 0x20 | 0x11); // Turn the voice on; set the octave and freq MSB
+}
+
+const char* exit_message = "JEMM unloaded... Not really :-)\n";
+
 static uint8_t __far* dblbuf = NULL;
 
-int main() {
+void main() {
+    opl_init();
+
     dblbuf = (uint8_t __far*)_fmalloc(SCREEN_NUM_PIXELS);
     if (!dblbuf) {
-        return 0;
+        goto exit;
     }
 
     {
         uint8_t __far* tgt = dblbuf;
         uint16_t x, y;
         for (y = 0; y < SCREEN_HEIGHT; ++y) {
+            uint8_t c = y * 63 / SCREEN_HEIGHT;
             for (x = 0; x < SCREEN_WIDTH; ++x) {
-                *tgt++ = y * 63 / SCREEN_HEIGHT;
+                *tgt++ = c;
             }
         }
     }
@@ -71,7 +172,19 @@ int main() {
         int quit = 0;
         while (!quit) {
             if (kbhit()) {
-                quit = 1;
+                char ch = getch();
+                switch (ch) {
+                    case 27:
+                        quit = 1;
+                        break;
+
+                    case 'a':
+                        opl_play();
+                        break;
+
+                    default:
+                        break;
+                }
             }
 
             vga_wait_for_retrace();
@@ -79,11 +192,12 @@ int main() {
         }
     }
 
+    _ffree(dblbuf);
+
+exit:
+    opl_done();
     vga_set_mode(0x3);
-    kb_clear_buffer();
-
-    putz("JEMM unloaded... Not really :-)\n");
+    putz(exit_message);
     set_text_cursor(2, 0);
-
-    return 0;
+    kb_clear_buffer();
 }

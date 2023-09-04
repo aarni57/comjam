@@ -18,7 +18,7 @@
 #define VGA_INPUT_STATUS 0x3da
 #define VGA_VRETRACE 0x08
 
-int vga_set_mode(uint8_t mode);
+void vga_set_mode(uint8_t mode);
 #pragma aux vga_set_mode = \
 "xor ah, ah" \
 "int 0x10" \
