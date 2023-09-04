@@ -8,6 +8,7 @@
 
 #include "vga.h"
 #include "minmax.h"
+#include "tri.h"
 
 int kb_clear_buffer();
 #pragma aux kb_clear_buffer =   \
@@ -122,18 +123,18 @@ static void opl_play() {
     opl_write(0xb0, 0);
 
     opl_write(0x20, 0x01); // Set the modulator's multiple
-    opl_write(0x40, 0x10); // Set the modulator's level
-    opl_write(0x60, 0xf1); // Modulator attack & decay
-    opl_write(0x80, 0x17); // Modulator sustain & release
-    opl_write(0xa0, 0x98); // Set voice frequency's LSB
-    opl_write(0x23, 0x01); // Set the carrier's multiple
+    opl_write(0x40, 0x06); // Set the modulator's level
+    opl_write(0x60, 0x11); // Modulator attack & decay
+    opl_write(0x80, 0x11); // Modulator sustain & release
+    opl_write(0xa0, 0x28); // Set voice frequency's LSB
+    opl_write(0x23, 0x00); // Set the carrier's multiple
     opl_write(0x43, 0x00); // Set the carrier to maximum volume
-    opl_write(0x63, 0xf1); // Carrier attack & decay
-    opl_write(0x83, 0x17); // Carrier sustain & release
-    opl_write(0xb0, 0x20 | 0x11); // Turn the voice on; set the octave and freq MSB
+    opl_write(0x63, 0x11); // Carrier attack & decay
+    opl_write(0x83, 0x11); // Carrier sustain & release
+    opl_write(0xb0, 0x20 | 0x10); // Turn the voice on; set the octave and freq MSB
 }
 
-const char* exit_message = "JEMM unloaded... Not really :-)\n";
+const char* exit_message = "JEMM unloaded... Not really :-)";
 
 static uint8_t __far* dblbuf = NULL;
 
@@ -185,6 +186,25 @@ void main() {
                     default:
                         break;
                 }
+            }
+
+            {
+                int32_t x0, y0, x1, y1, x2, y2;
+                static uint8_t c = 0;
+                static int32_t x = 0;
+
+                c++;
+                x++;
+                x &= 255;
+
+                x0 = x;
+                y0 = 10;
+                x1 = x + 20;
+                y1 = 90;
+                x2 = x + 100;
+                y2 = 100;
+
+                tri(x0, y0, x1, y1, x2, y2, c, dblbuf);
             }
 
             vga_wait_for_retrace();
