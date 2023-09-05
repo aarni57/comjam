@@ -21,6 +21,45 @@ static inline int16_t mul_by_raster_block_mask(int16_t x) {
 #endif
 }
 
+void fill_block(uint16_t tgt_low, uint16_t tgt_high, uint16_t c, uint16_t width);
+#pragma aux fill_block = \
+"shl bx, 3" \
+"mov dx, 320" \
+"sub dx, bx" \
+"shr bx, 1" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+parm [di] [es] [ax] [bx];
+
+void hline(uint16_t tgt_low, uint16_t tgt_high, uint16_t c, uint16_t width);
+#pragma aux hline = \
+"shr cx, 1" \
+"rep stosw" \
+"adc cx, cx" \
+"rep stosb" \
+parm [di] [es] [ax] [cx];
+
 //
 
 static void tri(
@@ -39,6 +78,7 @@ static void tri(
     int16_t co2_10, co2_01, co2_11;
     int16_t c0, c1, c2;
     int16_t cy0, cy1, cy2;
+    uint16_t color16 = ((uint16_t)color << 8) | color;
 
     uint8_t __far* screen_row;
     uint8_t __far* screen_row_end;
@@ -118,32 +158,42 @@ static void tri(
 
         while (x < max_x) {
             uint8_t __far* screen_block = screen_row + x;
+            uint8_t num_completely_filled = 0;
 
-            // Determine if completely filled
-            if (cx0 > 0 && (cx0 + co0_10) > 0 &&
-                           (cx0 + co0_01) > 0 &&
-                           (cx0 + co0_11) > 0 &&
-                cx1 > 0 && (cx1 + co1_10) > 0 &&
-                           (cx1 + co1_01) > 0 &&
-                           (cx1 + co1_11) > 0 &&
-                cx2 > 0 && (cx2 + co2_10) > 0 &&
-                           (cx2 + co2_01) > 0 &&
-                           (cx2 + co2_11) > 0) {
-                // Optimal for completely filled
+            while (x < max_x &&
+                   cx0 > 0 && (cx0 + co0_10) > 0 &&
+                              (cx0 + co0_01) > 0 &&
+                              (cx0 + co0_11) > 0 &&
+                   cx1 > 0 && (cx1 + co1_10) > 0 &&
+                              (cx1 + co1_01) > 0 &&
+                              (cx1 + co1_11) > 0 &&
+                   cx2 > 0 && (cx2 + co2_10) > 0 &&
+                              (cx2 + co2_01) > 0 &&
+                              (cx2 + co2_11) > 0) {
+                num_completely_filled++;
+                cx0 -= dy0 << RASTER_BLOCK_SIZE_SHIFT;
+                cx1 -= dy1 << RASTER_BLOCK_SIZE_SHIFT;
+                cx2 -= dy2 << RASTER_BLOCK_SIZE_SHIFT;
+                x += RASTER_BLOCK_SIZE;
+            }
+
+            if (num_completely_filled != 0) {
+#if 1
+                fill_block((uint16_t)screen_block,
+                    (uint16_t)((uint32_t)screen_block >> 16),
+                    color16, num_completely_filled);
+#else
+                uint16_t width = num_completely_filled << RASTER_BLOCK_SIZE_SHIFT;
                 uint8_t iy;
                 for (iy = 0; iy < RASTER_BLOCK_SIZE; ++iy) {
-#if 1
-                    _fmemset(screen_block, color, RASTER_BLOCK_SIZE);
-                    screen_block += SCREEN_STRIDE;
-#else
-                    for (uint8_t ix = 0; ix < RASTER_BLOCK_SIZE; ++ix) {
-                        *screen_block++ = color;
+                    uint16_t ix;
+                    for (ix = 0; ix < width; ix++) {
+                        screen_block[ix] = color;
                     }
 
-                    screen_block += SCREEN_STRIDE - RASTER_BLOCK_SIZE;
-#endif
-
+                    screen_block += SCREEN_STRIDE;
                 }
+#endif
             } else {
                 // Partially filled
                 int16_t ciy0 = cx0;
@@ -181,7 +231,14 @@ static void tri(
                             }
                         }
 
-#if 0
+#if 1
+                        {
+                            uint8_t __far* tgt = screen_block + left;
+                            hline((uint16_t)tgt,
+                                (uint16_t)((uint32_t)tgt >> 16),
+                                color16, right - left);
+                        }
+#else
                         {
                             uint8_t __far* h = screen_block + left;
                             uint8_t __far* h_end = screen_block + right;
@@ -189,8 +246,6 @@ static void tri(
                                 *h++ = color;
                             }
                         }
-#else
-                        _fmemset(screen_block + left, color, right - left);
 #endif
                     }
 
@@ -200,17 +255,17 @@ static void tri(
 
                     screen_block += SCREEN_STRIDE;
                 }
-            }
 
-            cx0 -= dy0 << RASTER_BLOCK_SIZE_SHIFT;
-            cx1 -= dy1 << RASTER_BLOCK_SIZE_SHIFT;
-            cx2 -= dy2 << RASTER_BLOCK_SIZE_SHIFT;
+                cx0 -= dy0 << RASTER_BLOCK_SIZE_SHIFT;
+                cx1 -= dy1 << RASTER_BLOCK_SIZE_SHIFT;
+                cx2 -= dy2 << RASTER_BLOCK_SIZE_SHIFT;
+
+                x += RASTER_BLOCK_SIZE;
+            }
 
             if ((cx0 + eo0) <= 0 || (cx1 + eo1) <= 0 || (cx2 + eo2) <= 0) {
                 break;
             }
-
-            x += RASTER_BLOCK_SIZE;
         }
 
         cy0 += dx0 << RASTER_BLOCK_SIZE_SHIFT;

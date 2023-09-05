@@ -1,6 +1,6 @@
 @echo off
 
-wcc -3 -ms -s -oirlx main.c
+wcc -3 -ms -oirlx main.c
 IF ERRORLEVEL 1 GOTO exit
 
 wdis -s -a -l main.obj
