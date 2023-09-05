@@ -50,6 +50,7 @@ void fill_block(uint16_t tgt_low, uint16_t tgt_high, uint16_t c, uint16_t width)
 "add di, dx" \
 "mov cx, bx" \
 "rep stosw" \
+modify [cx dx] \
 parm [di] [es] [ax] [bx];
 
 void hline(uint16_t tgt_low, uint16_t tgt_high, uint16_t c, uint16_t width);
@@ -128,9 +129,9 @@ static void tri(
     c1 = dy1 * x1 - dx1 * y1;
     c2 = dy2 * x2 - dx2 * y2;
 
-    if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c0 += 1;
-    if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c1 += 1;
-    if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c2 += 1;
+    if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c0++;
+    if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c1++;
+    if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c2++;
 
     cy0 = c0 + dx0 * min_y - dy0 * min_x;
     cy1 = c1 + dx1 * min_y - dy1 * min_x;

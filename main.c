@@ -13,7 +13,8 @@
 int kb_clear_buffer();
 #pragma aux kb_clear_buffer =   \
 "mov ax, 0x0c00" \
-"int 0x21";
+"int 0x21" \
+modify [ax];
 
 void putz(const char* str);
 #pragma aux putz = \
@@ -28,6 +29,7 @@ void putz(const char* str);
 "add bx, 1" \
 "jmp l" \
 "end:" \
+modify [ax dx] \
 parm [bx];
 
 void set_text_cursor(uint8_t row, uint8_t col);
@@ -36,10 +38,24 @@ void set_text_cursor(uint8_t row, uint8_t col);
 "mov bh, 0" \
 "xor al, al" \
 "int 10h" \
+modify [ax bh] \
 parm [dh] [dl];
 
 static uint16_t opl_base = 0x388;
 
+void opl_write(uint8_t reg, uint8_t v);
+#pragma aux opl_write = \
+"mov dx, word ptr opl_base" \
+"out dx, al" \
+"in al, dx" \
+"inc dx" \
+"mov al, bl" \
+"out dx, al" \
+"in al, dx" \
+modify [dx] \
+parm [al] [bl];
+
+#if 0
 static inline void opl_write(uint8_t reg, uint8_t v) {
     outp(opl_base, reg);
     inp(opl_base);
@@ -55,6 +71,7 @@ static inline void opl_write(uint8_t reg, uint8_t v) {
     }
 #endif
 }
+#endif
 
 static void opl_reset() {
     uint8_t i;
