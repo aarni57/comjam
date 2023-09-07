@@ -10,6 +10,15 @@
 #include "minmax.h"
 #include "tri.h"
 
+//
+
+static uint8_t __far* dblbuf = NULL;
+static uint8_t font_color_map[] = { 0, 1, 2, 3 };
+
+#include "drawtext.h"
+
+//
+
 int kb_clear_buffer();
 #pragma aux kb_clear_buffer =   \
 "mov ax, 0x0c00" \
@@ -153,8 +162,6 @@ static void opl_play() {
 
 const char* exit_message = "JEMM unloaded... Not really :-)";
 
-static uint8_t __far* dblbuf = NULL;
-
 void main() {
     opl_init();
 
@@ -163,6 +170,9 @@ void main() {
         goto exit;
     }
 
+    _fmemset(dblbuf, 0, 320 * 200);
+
+#if 0
     {
         uint8_t __far* tgt = dblbuf;
         uint16_t x, y;
@@ -173,9 +183,14 @@ void main() {
             }
         }
     }
+#endif
 
     vga_set_mode(0x13);
+    vga_set_palette(253, 0, 20, 0);
+    vga_set_palette(254, 0, 48, 0);
+    vga_set_palette(255, 0, 58, 0);
 
+#if 0
     {
         uint8_t i, r, g, b;
         for (i = 0; i < 64; ++i) {
@@ -185,6 +200,7 @@ void main() {
             vga_set_palette(i, r, g, b);
         }
     }
+#endif
 
     {
         int quit = 0;
@@ -205,6 +221,7 @@ void main() {
                 }
             }
 
+#if 0
             {
                 int32_t x0, y0, x1, y1, x2, y2;
                 static uint8_t c = 0;
@@ -221,8 +238,18 @@ void main() {
                 x2 = x + 240;
                 y2 = 180;
 
+                x0 <<= PROJECTION_SUBPIXEL_BITS;
+                y0 <<= PROJECTION_SUBPIXEL_BITS;
+                x1 <<= PROJECTION_SUBPIXEL_BITS;
+                y1 <<= PROJECTION_SUBPIXEL_BITS;
+                x2 <<= PROJECTION_SUBPIXEL_BITS;
+                y2 <<= PROJECTION_SUBPIXEL_BITS;
+
                 tri(x0, y0, x1, y1, x2, y2, c, dblbuf);
             }
+#endif
+
+            draw_text("Prerendering graphics...", 6, 6, 252);
 
             vga_wait_for_retrace();
             _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);

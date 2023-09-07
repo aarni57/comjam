@@ -13,6 +13,10 @@
 #define RASTER_BLOCK_SIZE (1 << RASTER_BLOCK_SIZE_SHIFT)
 #define RASTER_BLOCK_MASK (RASTER_BLOCK_SIZE - 1)
 
+#define PROJECTION_SUBPIXEL_BITS 0
+#define PROJECTION_SUBPIXEL_ONE (1 << PROJECTION_SUBPIXEL_BITS)
+#define PROJECTION_SUBPIXEL_MASK (PROJECTION_SUBPIXEL_ONE - 1)
+
 static inline int16_t mul_by_raster_block_mask(int16_t x) {
 #if 1
     return (x << 3) - x;
@@ -115,13 +119,13 @@ static void tri(
     uint8_t __far* screen_row;
     uint8_t __far* screen_row_end;
 
-    min_x = clamp16(min16(x0, min16(x1, x2)), 0, RASTER_SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
-    max_x = clamp16(max16(x0, max16(x1, x2)), 0, RASTER_SCREEN_X_MAX);
+    min_x = clamp16((min16(x0, min16(x1, x2)) + PROJECTION_SUBPIXEL_MASK) >> PROJECTION_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
+    max_x = clamp16((max16(x0, max16(x1, x2)) + PROJECTION_SUBPIXEL_MASK) >> PROJECTION_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX);
     if (min_x == max_x)
         return;
 
-    min_y = clamp16(min16(y0, min16(y1, y2)), 0, RASTER_SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
-    max_y = clamp16(max16(y0, max16(y1, y2)), 0, RASTER_SCREEN_Y_MAX);
+    min_y = clamp16((min16(y0, min16(y1, y2)) + PROJECTION_SUBPIXEL_MASK) >> PROJECTION_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
+    max_y = clamp16((max16(y0, max16(y1, y2)) + PROJECTION_SUBPIXEL_MASK) >> PROJECTION_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX);
     if (min_y == max_y)
         return;
 
@@ -133,6 +137,34 @@ static void tri(
     dy1 = y1 - y2;
     dx2 = x2 - x0;
     dy2 = y2 - y0;
+
+    {
+        int16_t c = dy0 * x0 - dx0 * y0;
+        if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c++;
+
+        dx0 <<= PROJECTION_SUBPIXEL_BITS;
+        dy0 <<= PROJECTION_SUBPIXEL_BITS;
+
+        c0 = c + dx0 * min_y - dy0 * min_x;
+    }
+    {
+        int16_t c = dy1 * x1 - dx1 * y1;
+        if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c++;
+
+        dx1 <<= PROJECTION_SUBPIXEL_BITS;
+        dy1 <<= PROJECTION_SUBPIXEL_BITS;
+
+        c1 = c + dx1 * min_y - dy1 * min_x;
+    }
+    {
+        int16_t c = dy2 * x2 - dx2 * y2;
+        if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c++;
+
+        dx2 <<= PROJECTION_SUBPIXEL_BITS;
+        dy2 <<= PROJECTION_SUBPIXEL_BITS;
+
+        c2 = c + dx2 * min_y - dy2 * min_x;
+    }
 
     //
 
@@ -159,24 +191,6 @@ static void tri(
     eo2 = 0;
     if (dy2 < 0) eo2 = eo2 - (dy2 << RASTER_BLOCK_SIZE_SHIFT);
     if (dx2 > 0) eo2 = eo2 + (dx2 << RASTER_BLOCK_SIZE_SHIFT);
-
-    //
-
-    {
-        int16_t c = dy0 * x0 - dx0 * y0;
-        if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c++;
-        c0 = c + dx0 * min_y - dy0 * min_x;
-    }
-    {
-        int16_t c = dy1 * x1 - dx1 * y1;
-        if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c++;
-        c1 = c + dx1 * min_y - dy1 * min_x;
-    }
-    {
-        int16_t c = dy2 * x2 - dx2 * y2;
-        if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c++;
-        c2 = c + dx2 * min_y - dy2 * min_x;
-    }
 
     //
 
