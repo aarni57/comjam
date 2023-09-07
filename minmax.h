@@ -3,6 +3,20 @@
 
 #include <stdint.h>
 
+static inline int8_t min8(int8_t a, int8_t b) {
+    return a < b ? a : b;
+}
+
+static inline int8_t max8(int8_t a, int8_t b) {
+    return a > b ? a : b;
+}
+
+static inline int8_t clamp8(int8_t x, int8_t l, int8_t h) {
+    return min8(max8(x, l), h);
+}
+
+//
+
 static inline uint8_t minu8(uint8_t a, uint8_t b) {
     return a < b ? a : b;
 }
