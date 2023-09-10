@@ -78,7 +78,7 @@ static void draw_text(const char* text, int16_t left, int16_t top,
 
     const font_t* font = &FONT6X6;
 
-    while (1) {
+    for (;;) {
         const char c = *text++;
         if (!c) {
             break;

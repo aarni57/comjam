@@ -9,6 +9,7 @@
 #include "vga.h"
 #include "minmax.h"
 #include "tri.h"
+#include "util.h"
 
 //
 
@@ -18,67 +19,108 @@ static uint8_t __far* dblbuf = NULL;
 
 //
 
+static int opl_enabled = 0;
 static uint16_t opl_base = 0x388;
 
 #include "opl.h"
 
 //
 
-int kb_clear_buffer();
-#pragma aux kb_clear_buffer =   \
-"mov ax, 0x0c00" \
-"int 0x21" \
-modify [ax];
+volatile uint32_t timer_ticks;
 
-void putz(const char* str);
-#pragma aux putz = \
-"l:" \
-"mov dl, [bx]" \
-"test dl, dl" \
-"jz end" \
-"push bx" \
-"mov ah, 02h" \
-"int 21h" \
-"pop bx" \
-"add bx, 1" \
-"jmp l" \
-"end:" \
-modify [ax dx] \
-parm [bx];
+// defined in timer.asm
+void timer_init();
+void timer_cleanup();
 
-void set_text_cursor(uint8_t row, uint8_t col);
-#pragma aux set_text_cursor = \
-"mov ah, 2" \
-"mov bh, 0" \
-"xor al, al" \
-"int 10h" \
-modify [ax bh] \
-parm [dh] [dl];
+#define TIMER_TICK_USEC 858
 
-const char* exit_message = "JEMM unloaded... Not really :-)";
+//
+
+static const char* exit_message = "JEMM unloaded... Not really :-)";
+
+static int quit = 0;
+
+static uint32_t frame_dt = 0;
+
+static uint32_t fps_time_accumulator = 0;
+static uint32_t fps_frame_accumulator = 0;
+static uint32_t fps = 0;
+
+//
+
+static void update_input() {
+    if (kbhit()) {
+        char ch = getch();
+        switch (ch) {
+            case 27:
+                quit = 1;
+                break;
+
+            case 'a':
+                opl_play();
+                break;
+
+            default:
+                break;
+        }
+    }
+}
+
+static void update() {
+
+}
+
+static void draw_test_triangle() {
+    static uint8_t c = 0;
+    static uint32_t x = 0;
+    int32_t x0, y0, x1, y1, x2, y2;
+
+    c++;
+    x += frame_dt / 1000;
+    x &= 255;
+
+    x0 = x;
+    y0 = 40;
+    x1 = x + 40;
+    y1 = 160;
+    x2 = x + 240;
+    y2 = 180;
+
+    x0 <<= RASTER_SUBPIXEL_BITS;
+    y0 <<= RASTER_SUBPIXEL_BITS;
+    x1 <<= RASTER_SUBPIXEL_BITS;
+    y1 <<= RASTER_SUBPIXEL_BITS;
+    x2 <<= RASTER_SUBPIXEL_BITS;
+    y2 <<= RASTER_SUBPIXEL_BITS;
+
+    tri(x0, y0, x1, y1, x2, y2, c, dblbuf);
+}
+
+static void draw_fps() {
+    char buf[3] = { 0 };
+    uint8_t tens = fps / 10;
+    buf[0] = tens ? '0' + tens : ' ';
+    buf[1] = '0' + (fps - tens * 10);
+    draw_text(buf, 320 - 12, 2, 252);
+}
+
+static void draw() {
+    draw_test_triangle();
+
+    draw_text("Prerendering graphics...", 6, 6, 252);
+    draw_text_cursor(6, 12, 255);
+
+    draw_fps();
+}
 
 void main() {
-    opl_init();
-
     dblbuf = (uint8_t __far*)_fmalloc(SCREEN_NUM_PIXELS);
     if (!dblbuf) {
         goto exit;
     }
 
-    _fmemset(dblbuf, 0, 320 * 200);
-
-#if 0
-    {
-        uint8_t __far* tgt = dblbuf;
-        uint16_t x, y;
-        for (y = 0; y < SCREEN_HEIGHT; ++y) {
-            uint8_t c = y * 63 / SCREEN_HEIGHT;
-            for (x = 0; x < SCREEN_WIDTH; ++x) {
-                *tgt++ = c;
-            }
-        }
-    }
-#endif
+    opl_init();
+    timer_init();
 
     vga_set_mode(0x13);
     vga_set_palette(253, 0, 20, 0);
@@ -97,64 +139,40 @@ void main() {
     }
 #endif
 
-    {
-        int quit = 0;
-        while (!quit) {
-            if (kbhit()) {
-                char ch = getch();
-                switch (ch) {
-                    case 27:
-                        quit = 1;
-                        break;
+    while (!quit) {
+        static uint32_t previous_frame_ticks = 0;
+        uint32_t frame_start_ticks, ticks_delta;
 
-                    case 'a':
-                        opl_play();
-                        break;
+        _disable();
+        frame_start_ticks = timer_ticks;
+        _enable();
 
-                    default:
-                        break;
-                }
-            }
+        ticks_delta = frame_start_ticks - previous_frame_ticks;
+        previous_frame_ticks = frame_start_ticks;
+        frame_dt = ticks_delta * TIMER_TICK_USEC;
 
-#if 0
-            {
-                int32_t x0, y0, x1, y1, x2, y2;
-                static uint8_t c = 0;
-                static int32_t x = 0;
-
-                c++;
-                x++;
-                x &= 255;
-
-                x0 = x;
-                y0 = 10;
-                x1 = x + 40;
-                y1 = 160;
-                x2 = x + 240;
-                y2 = 180;
-
-                x0 <<= PROJECTION_SUBPIXEL_BITS;
-                y0 <<= PROJECTION_SUBPIXEL_BITS;
-                x1 <<= PROJECTION_SUBPIXEL_BITS;
-                y1 <<= PROJECTION_SUBPIXEL_BITS;
-                x2 <<= PROJECTION_SUBPIXEL_BITS;
-                y2 <<= PROJECTION_SUBPIXEL_BITS;
-
-                tri(x0, y0, x1, y1, x2, y2, c, dblbuf);
-            }
-#endif
-
-            draw_text("Prerendering graphics...", 6, 6, 252);
-            draw_text_cursor(6, 12, 255);
-
-            vga_wait_for_retrace();
-            _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);
+        fps_time_accumulator += frame_dt;
+        if (fps_time_accumulator >= 1000000) {
+            fps = (fps_frame_accumulator * 1000000) / fps_time_accumulator;
+            fps_time_accumulator = 0;
+            fps_frame_accumulator = 0;
         }
+
+        fps_frame_accumulator++;
+
+        update_input();
+        update();
+
+        _fmemset(dblbuf, 0, SCREEN_NUM_PIXELS);
+        draw();
+        vga_wait_for_retrace();
+        _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);
     }
 
     _ffree(dblbuf);
 
 exit:
+    timer_cleanup();
     opl_done();
     vga_set_mode(0x3);
     putz(exit_message);

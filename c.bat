@@ -1,11 +1,13 @@
 @echo off
 
-wcc -3 -ms -oirlx main.c
+wcc -3 -ms -oirlx -bt=com main.c
 IF ERRORLEVEL 1 GOTO exit
 
 wdis -s -a -l main.obj
 IF ERRORLEVEL 1 GOTO exit
 
-wlink system com option eliminate, vfremoval file main.obj
+nasm -f obj -o timer.obj timer.asm
+
+wlink name main.com system com option eliminate file { main.obj timer.obj }
 
 :exit

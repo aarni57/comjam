@@ -33,6 +33,10 @@ static inline void opl_write(uint8_t reg, uint8_t v) {
 
 static void opl_reset() {
     uint8_t i;
+
+    if (!opl_enabled)
+        return;
+
     for (i = 0x01; i <= 0xf5; i++) {
         opl_write(i, 0);
     }
@@ -72,6 +76,8 @@ static void opl_init() {
         return;
     }
 
+    opl_enabled = 1;
+
 #if 0
     // OPL3 detection (not used)
     val1 = inp(opl_base);
@@ -89,11 +95,17 @@ static void opl_init() {
 }
 
 static void opl_done() {
+    if (!opl_enabled)
+        return;
+
     opl_reset();
 }
 
 static void opl_play() {
     uint8_t voice = 0;
+
+    if (!opl_enabled)
+        return;
 
     opl_write(0xb0, 0);
 

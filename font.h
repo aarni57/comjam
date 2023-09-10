@@ -23,7 +23,7 @@ typedef struct font_t {
 #define FONT6X6_SPACING 5
 #define FONT6X6_LINE_HEIGHT 7
 
-const int8_t FONT6X6_SPACINGS[] = {
+static const int8_t FONT6X6_SPACINGS[] = {
     -3, /* ! */   -1, /* " */    1, /* # */    0, /* $ */    1, /* % */
      0, /* & */   -2, /* ' */   -1, /* ( */   -1, /* ) */   -1, /* * */
     -1, /* + */   -3, /* , */   -2, /* - */   -3, /* . */   -1, /* / */
@@ -45,7 +45,7 @@ const int8_t FONT6X6_SPACINGS[] = {
     -1, /* { */   -3, /* | */   -1, /* } */    0  /* ~ */
 };
 
-const font_t FONT6X6 = {
+static const font_t FONT6X6 = {
     FONT6X6_WIDTH,
     FONT6X6_HEIGHT,
 
@@ -56,7 +56,7 @@ const font_t FONT6X6 = {
     FONT6X6_SPACINGS
 };
 
-const uint8_t FONT6X6_DATA[] = {
+static const uint8_t FONT6X6_DATA[] = {
     3, 12, 32, 0, 0, 3, 0, 48, 131, 8,
     0, 0, 0, 0, 0, 216, 184, 139, 141, 187,
     220, 0, 144, 155, 25, 185, 145, 153, 27, 8,
