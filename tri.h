@@ -9,20 +9,16 @@
 #define RASTER_SCREEN_X_MAX (SCREEN_WIDTH - 1)
 #define RASTER_SCREEN_Y_MAX (SCREEN_HEIGHT - 1)
 
-#define RASTER_BLOCK_SIZE_SHIFT 3
+#define RASTER_BLOCK_SIZE_SHIFT 2
 #define RASTER_BLOCK_SIZE (1 << RASTER_BLOCK_SIZE_SHIFT)
 #define RASTER_BLOCK_MASK (RASTER_BLOCK_SIZE - 1)
 
-#define RASTER_SUBPIXEL_BITS 0
+#define RASTER_SUBPIXEL_BITS 1
 #define RASTER_SUBPIXEL_ONE (1 << RASTER_SUBPIXEL_BITS)
 #define RASTER_SUBPIXEL_MASK (RASTER_SUBPIXEL_ONE - 1)
 
 static inline int16_t mul_by_raster_block_mask(int16_t x) {
-#if 1
-    return (x << 3) - x;
-#else
-    return x * RASTER_BLOCK_MASK;
-#endif
+    return (x << 3) - x; // x * RASTER_BLOCK_MASK
 }
 
 #if 1
@@ -30,6 +26,8 @@ static inline int16_t mul_by_raster_block_mask(int16_t x) {
 #define PASS_FAR_PTR(ptr) (uint16_t)(ptr), (uint16_t)((uint32_t)(ptr) >> 16)
 
 void fill_block(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
+
+#if RASTER_BLOCK_SIZE_SHIFT == 3
 #pragma aux fill_block = \
 "mov ah, al" \
 "shl bx, 3" \
@@ -61,6 +59,27 @@ void fill_block(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
 "rep stosw" \
 modify [cx dx] \
 parm [di] [es] [al] [bx];
+#elif RASTER_BLOCK_SIZE_SHIFT == 2
+#pragma aux fill_block = \
+"mov ah, al" \
+"shl bx, 2" \
+"mov dx, 320" \
+"sub dx, bx" \
+"shr bx, 1" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+"add di, dx" \
+"mov cx, bx" \
+"rep stosw" \
+modify [cx dx] \
+parm [di] [es] [al] [bx];
+#endif
 
 void hline(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
 #pragma aux hline = \

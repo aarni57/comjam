@@ -70,30 +70,74 @@ static void update() {
 
 }
 
+#if 1
+#define abs16 abs
+#else
+static inline int16_t abs16(int16_t x) {
+    return x < 0 ? -x : x;
+}
+#endif
+
+#define TRI_SPLITTING_THRESHOLD 0xff80
+
+static void draw_tri(
+    int16_t x0, int16_t y0,
+    int16_t x1, int16_t y1,
+    int16_t x2, int16_t y2,
+    uint8_t c) {
+    if ((abs16(x0 - x1) | abs16(y0 - y1)) & TRI_SPLITTING_THRESHOLD) {
+        int16_t sx = (x0 + x1) / 2;
+        int16_t sy = (y0 + y1) / 2;
+        draw_tri(x2, y2, x0, y0, sx, sy, c);
+        draw_tri(x1, y1, x2, y2, sx, sy, c);
+        return;
+    }
+
+    if ((abs16(x1 - x2) | abs16(y1 - y2)) & TRI_SPLITTING_THRESHOLD) {
+        int16_t sx = (x1 + x2) / 2;
+        int16_t sy = (y1 + y2) / 2;
+        draw_tri(x0, y0, x1, y1, sx, sy, c);
+        draw_tri(x2, y2, x0, y0, sx, sy, c);
+        return;
+    }
+
+    if ((abs16(x2 - x0) | abs16(y2 - y0)) & TRI_SPLITTING_THRESHOLD) {
+        int16_t sx = (x0 + x2) / 2;
+        int16_t sy = (y0 + y2) / 2;
+        draw_tri(x1, y1, x2, y2, sx, sy, c);
+        draw_tri(x0, y0, x1, y1, sx, sy, c);
+        return;
+    }
+
+    tri(x0, y0, x1, y1, x2, y2, c, dblbuf);
+}
+
 static void draw_test_triangle() {
     static uint8_t c = 0;
-    static uint32_t x = 0;
-    int32_t x0, y0, x1, y1, x2, y2;
+    static uint16_t x = 0;
+    int16_t x0, y0, x1, y1, x2, y2;
 
     c++;
-    x += frame_dt / 1000;
+    x += frame_dt / 10000;
     x &= 255;
 
     x0 = x;
     y0 = 40;
     x1 = x + 40;
-    y1 = 160;
-    x2 = x + 240;
-    y2 = 180;
+    y1 = 360;
+    x2 = x + 440;
+    y2 = 280;
 
+#if 0
     x0 <<= RASTER_SUBPIXEL_BITS;
     y0 <<= RASTER_SUBPIXEL_BITS;
     x1 <<= RASTER_SUBPIXEL_BITS;
     y1 <<= RASTER_SUBPIXEL_BITS;
     x2 <<= RASTER_SUBPIXEL_BITS;
     y2 <<= RASTER_SUBPIXEL_BITS;
+#endif
 
-    tri(x0, y0, x1, y1, x2, y2, c, dblbuf);
+    draw_tri(x0, y0, x1, y1, x2, y2, 1);
 }
 
 static void draw_fps() {
