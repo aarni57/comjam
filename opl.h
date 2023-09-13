@@ -1,6 +1,10 @@
 #ifndef OPL_H
 #define OPL_H
 
+static uint8_t opl_register_cache[256] = { 0 };
+
+#if 0
+
 void opl_write(uint8_t reg, uint8_t v);
 #pragma aux opl_write = \
 "mov dx, word ptr opl_base" \
@@ -13,28 +17,58 @@ void opl_write(uint8_t reg, uint8_t v);
 modify [dx] \
 parm [al] [bl];
 
-#if 0
+#else
+
+static inline void opl_wait_index() {
+    inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(opl_base); inp(opl_base); inp(opl_base);
+}
+
+static inline void opl_wait_data() {
+    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+}
+
 static inline void opl_write(uint8_t reg, uint8_t v) {
+    opl_register_cache[reg] = v;
+
     outp(opl_base, reg);
-    inp(opl_base);
+    opl_wait_index();
     outp(opl_base + 1, v);
-    inp(opl_base);
+    opl_wait_data();
 
 #if 0
     if (opl == 3) {
         outp(opl_base + 2, reg);
-        inp(opl_base);
+        opl_wait_index();
         outp(opl_base + 2 + 1, v);
-        inp(opl_base);
+        opl_wait_data();
     }
 #endif
+}
+
+static inline void opl_write_fast(uint8_t reg, uint8_t v) {
+    if (opl_register_cache[reg] == v)
+        return;
+
+    opl_register_cache[reg] = v;
+
+    outp(opl_base, reg);
+    opl_wait_index();
+    outp(opl_base + 1, v);
+    opl_wait_data();
 }
 #endif
 
 static void opl_reset() {
     uint8_t i;
 
-    if (!opl_enabled)
+    if (!opl)
         return;
 
     for (i = 0x01; i <= 0xf5; i++) {
@@ -76,10 +110,7 @@ static void opl_init() {
         return;
     }
 
-    opl_enabled = 1;
-
 #if 0
-    // OPL3 detection (not used)
     val1 = inp(opl_base);
 
     if ((val1 & 0x06) == 0x00) {
@@ -87,6 +118,8 @@ static void opl_init() {
     } else {
         opl = 2;
     }
+#else
+    opl = 2;
 #endif
 
     opl_reset();
@@ -95,29 +128,30 @@ static void opl_init() {
 }
 
 static void opl_done() {
-    if (!opl_enabled)
+    if (!opl)
         return;
 
     opl_reset();
+    opl = 0;
 }
 
 static void opl_play() {
     uint8_t voice = 0;
 
-    if (!opl_enabled)
+    if (!opl)
         return;
 
-    opl_write(0xb0, 0);
+    opl_write(0xb0, 0); // Voice off
 
-    opl_write(0x20, 0x01); // Set the modulator's multiple
-    opl_write(0x40, 0x06); // Set the modulator's level
-    opl_write(0x60, 0x11); // Modulator attack & decay
-    opl_write(0x80, 0x11); // Modulator sustain & release
-    opl_write(0xa0, 0x28); // Set voice frequency's LSB
-    opl_write(0x23, 0x00); // Set the carrier's multiple
-    opl_write(0x43, 0x00); // Set the carrier to maximum volume
-    opl_write(0x63, 0x11); // Carrier attack & decay
-    opl_write(0x83, 0x11); // Carrier sustain & release
+    opl_write_fast(0x20, 0x01); // Set the modulator's multiple
+    opl_write_fast(0x40, 0x06); // Set the modulator's level
+    opl_write_fast(0x60, 0x11); // Modulator attack & decay
+    opl_write_fast(0x80, 0x11); // Modulator sustain & release
+    opl_write_fast(0xa0, 0x28); // Set voice frequency's LSB
+    opl_write_fast(0x23, 0x00); // Set the carrier's multiple
+    opl_write_fast(0x43, 0x00); // Set the carrier to maximum volume
+    opl_write_fast(0x63, 0x11); // Carrier attack & decay
+    opl_write_fast(0x83, 0x11); // Carrier sustain & release
     opl_write(0xb0, 0x20 | 0x10); // Turn the voice on; set the octave and freq MSB
 }
 

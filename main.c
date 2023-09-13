@@ -19,8 +19,10 @@ static uint8_t __far* dblbuf = NULL;
 
 //
 
-static int opl_enabled = 0;
-static uint16_t opl_base = 0x388;
+#define OPL_BASE_DEFAULT 0x388
+
+static int opl = 0;
+static uint16_t opl_base = OPL_BASE_DEFAULT;
 
 #include "opl.h"
 
