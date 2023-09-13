@@ -3,21 +3,27 @@
 
 #include "minmax.h"
 #include "screen.h"
+#include "fx.h"
 
 //
 
 #define RASTER_SCREEN_X_MAX (SCREEN_WIDTH - 1)
 #define RASTER_SCREEN_Y_MAX (SCREEN_HEIGHT - 1)
 
-#define RASTER_BLOCK_SIZE_SHIFT 2
+#define RASTER_BLOCK_SIZE_SHIFT 3
 #define RASTER_BLOCK_SIZE (1 << RASTER_BLOCK_SIZE_SHIFT)
 #define RASTER_BLOCK_MASK (RASTER_BLOCK_SIZE - 1)
 
-#define RASTER_SUBPIXEL_BITS 1
+#define RASTER_SUBPIXEL_BITS 4
 #define RASTER_SUBPIXEL_ONE (1 << RASTER_SUBPIXEL_BITS)
 #define RASTER_SUBPIXEL_MASK (RASTER_SUBPIXEL_ONE - 1)
 
-static inline int16_t mul_by_raster_block_mask(int16_t x) {
+#define RASTER_SCREEN_CENTER_X ((fx_t)SCREEN_CENTER_X << RASTER_SUBPIXEL_BITS)
+#define RASTER_SCREEN_CENTER_Y ((fx_t)SCREEN_CENTER_Y << RASTER_SUBPIXEL_BITS)
+
+//
+
+static inline fx_t mul_by_raster_block_mask(fx_t x) {
     return (x << 3) - x; // x * RASTER_BLOCK_MASK
 }
 
@@ -27,7 +33,6 @@ static inline int16_t mul_by_raster_block_mask(int16_t x) {
 
 void fill_block(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
 
-#if RASTER_BLOCK_SIZE_SHIFT == 3
 #pragma aux fill_block = \
 "mov ah, al" \
 "shl bx, 3" \
@@ -59,27 +64,6 @@ void fill_block(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
 "rep stosw" \
 modify [cx dx] \
 parm [di] [es] [al] [bx];
-#elif RASTER_BLOCK_SIZE_SHIFT == 2
-#pragma aux fill_block = \
-"mov ah, al" \
-"shl bx, 2" \
-"mov dx, 320" \
-"sub dx, bx" \
-"shr bx, 1" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-modify [cx dx] \
-parm [di] [es] [al] [bx];
-#endif
 
 void hline(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
 #pragma aux hline = \
@@ -120,31 +104,31 @@ void hline(uint8_t __far* tgt, uint8_t c, uint16_t width) {
 //
 
 static void tri(
-    int16_t x0, int16_t y0,
-    int16_t x1, int16_t y1,
-    int16_t x2, int16_t y2,
+    fx_t x0, fx_t y0,
+    fx_t x1, fx_t y1,
+    fx_t x2, fx_t y2,
     uint8_t color,
     uint8_t __far* screen)
 {
     uint16_t min_x, min_y, max_x, max_y;
-    int16_t dx0, dx1, dx2;
-    int16_t dy0, dy1, dy2;
-    int16_t eo0, eo1, eo2; // Offsets for empty testing
-    int16_t co0_10, co0_01, co0_11; // Corner offsets
-    int16_t co1_10, co1_01, co1_11;
-    int16_t co2_10, co2_01, co2_11;
-    int16_t c0, c1, c2;
+    fx_t dx0, dx1, dx2;
+    fx_t dy0, dy1, dy2;
+    fx_t eo0, eo1, eo2; // Offsets for empty testing
+    fx_t co0_10, co0_01, co0_11; // Corner offsets
+    fx_t co1_10, co1_01, co1_11;
+    fx_t co2_10, co2_01, co2_11;
+    fx_t c0, c1, c2;
 
     uint8_t __far* screen_row;
     uint8_t __far* screen_row_end;
 
-    min_x = clamp16((min16(x0, min16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
-    max_x = clamp16((max16(x0, max16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX);
+    min_x = fx_clamp((fx_min(x0, fx_min(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
+    max_x = fx_clamp((fx_max(x0, fx_max(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX);
     if (min_x == max_x)
         return;
 
-    min_y = clamp16((min16(y0, min16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
-    max_y = clamp16((max16(y0, max16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX);
+    min_y = fx_clamp((fx_min(y0, fx_min(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
+    max_y = fx_clamp((fx_max(y0, fx_max(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX);
     if (min_y == max_y)
         return;
 
@@ -158,7 +142,7 @@ static void tri(
     dy2 = y2 - y0;
 
     {
-        int16_t c = dy0 * x0 - dx0 * y0;
+        fx_t c = dy0 * x0 - dx0 * y0;
         if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c++;
 
         dx0 <<= RASTER_SUBPIXEL_BITS;
@@ -167,7 +151,7 @@ static void tri(
         c0 = c + dx0 * min_y - dy0 * min_x;
     }
     {
-        int16_t c = dy1 * x1 - dx1 * y1;
+        fx_t c = dy1 * x1 - dx1 * y1;
         if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c++;
 
         dx1 <<= RASTER_SUBPIXEL_BITS;
@@ -176,7 +160,7 @@ static void tri(
         c1 = c + dx1 * min_y - dy1 * min_x;
     }
     {
-        int16_t c = dy2 * x2 - dx2 * y2;
+        fx_t c = dy2 * x2 - dx2 * y2;
         if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c++;
 
         dx2 <<= RASTER_SUBPIXEL_BITS;
@@ -217,9 +201,9 @@ static void tri(
     screen_row_end = screen + mul_by_screen_stride(max_y);
 
     while (screen_row < screen_row_end) {
-        int16_t cx0 = c0;
-        int16_t cx1 = c1;
-        int16_t cx2 = c2;
+        fx_t cx0 = c0;
+        fx_t cx1 = c1;
+        fx_t cx2 = c2;
 
         uint16_t x = min_x;
         while (!((cx0 + eo0) > 0 &&
@@ -259,14 +243,14 @@ static void tri(
                 fill_block(PASS_FAR_PTR(screen_block), color, num_completely_filled);
             } else {
                 // Partially filled
-                int16_t ciy0 = cx0;
-                int16_t ciy1 = cx1;
-                int16_t ciy2 = cx2;
+                fx_t ciy0 = cx0;
+                fx_t ciy1 = cx1;
+                fx_t ciy2 = cx2;
                 uint8_t iy;
                 for (iy = 0; iy < RASTER_BLOCK_SIZE; ++iy) {
-                    int16_t cix0 = ciy0;
-                    int16_t cix1 = ciy1;
-                    int16_t cix2 = ciy2;
+                    fx_t cix0 = ciy0;
+                    fx_t cix1 = ciy1;
+                    fx_t cix2 = ciy2;
 
                     uint8_t left = 0;
                     while ((cix0 | cix1 | cix2) <= 0) {

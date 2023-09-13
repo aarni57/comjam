@@ -78,33 +78,33 @@ static inline int16_t abs16(int16_t x) {
 }
 #endif
 
-#define TRI_SPLITTING_THRESHOLD 0xff80
+#define TRI_SPLITTING_THRESHOLD 0x8000
 
 static void draw_tri(
-    int16_t x0, int16_t y0,
-    int16_t x1, int16_t y1,
-    int16_t x2, int16_t y2,
+    fx_t x0, fx_t y0,
+    fx_t x1, fx_t y1,
+    fx_t x2, fx_t y2,
     uint8_t c) {
-    if ((abs16(x0 - x1) | abs16(y0 - y1)) & TRI_SPLITTING_THRESHOLD) {
-        int16_t sx = (x0 + x1) / 2;
-        int16_t sy = (y0 + y1) / 2;
-        draw_tri(x2, y2, x0, y0, sx, sy, c);
+    if ((fx_abs(x0 - x1) | fx_abs(y0 - y1)) & TRI_SPLITTING_THRESHOLD) {
+        fx_t sx = (x0 + x1) / 2;
+        fx_t sy = (y0 + y1) / 2;
+        draw_tri(x2, y2, x0, y0, sx, sy, x2);
         draw_tri(x1, y1, x2, y2, sx, sy, c);
         return;
     }
 
-    if ((abs16(x1 - x2) | abs16(y1 - y2)) & TRI_SPLITTING_THRESHOLD) {
-        int16_t sx = (x1 + x2) / 2;
-        int16_t sy = (y1 + y2) / 2;
-        draw_tri(x0, y0, x1, y1, sx, sy, c);
+    if ((fx_abs(x1 - x2) | fx_abs(y1 - y2)) & TRI_SPLITTING_THRESHOLD) {
+        fx_t sx = (x1 + x2) / 2;
+        fx_t sy = (y1 + y2) / 2;
+        draw_tri(x0, y0, x1, y1, sx, sy, x0);
         draw_tri(x2, y2, x0, y0, sx, sy, c);
         return;
     }
 
-    if ((abs16(x2 - x0) | abs16(y2 - y0)) & TRI_SPLITTING_THRESHOLD) {
-        int16_t sx = (x0 + x2) / 2;
-        int16_t sy = (y0 + y2) / 2;
-        draw_tri(x1, y1, x2, y2, sx, sy, c);
+    if ((fx_abs(x2 - x0) | fx_abs(y2 - y0)) & TRI_SPLITTING_THRESHOLD) {
+        fx_t sx = (x0 + x2) / 2;
+        fx_t sy = (y0 + y2) / 2;
+        draw_tri(x1, y1, x2, y2, sx, sy, x1);
         draw_tri(x0, y0, x1, y1, sx, sy, c);
         return;
     }
@@ -112,32 +112,44 @@ static void draw_tri(
     tri(x0, y0, x1, y1, x2, y2, c, dblbuf);
 }
 
+static inline fx2_t transform_to_screen(fx2_t v) {
+    fx2_t r;
+    r.x = v.x;
+    r.y = -v.y * 5 / 6;
+    r.x += RASTER_SCREEN_CENTER_X;
+    r.y += RASTER_SCREEN_CENTER_Y;
+    return r;
+}
+
 static void draw_test_triangle() {
-    static uint8_t c = 0;
-    static uint16_t x = 0;
-    int16_t x0, y0, x1, y1, x2, y2;
+    static fx_t t = 0;
+    fx_t t2, t3, scale, c, s;
+    fx2_t v0, v1, v2;
 
-    c++;
-    x += frame_dt / 10000;
-    x &= 255;
+    v0.x = 0;
+    v0.y = -1500;
+    v1.x = 1100;
+    v1.y = 1000;
+    v2.x = -1100;
+    v2.y = 1000;
 
-    x0 = x;
-    y0 = 40;
-    x1 = x + 40;
-    y1 = 360;
-    x2 = x + 440;
-    y2 = 280;
+    t += frame_dt;
+    t2 = t / 128;
+    t3 = t / 96;
 
-#if 0
-    x0 <<= RASTER_SUBPIXEL_BITS;
-    y0 <<= RASTER_SUBPIXEL_BITS;
-    x1 <<= RASTER_SUBPIXEL_BITS;
-    y1 <<= RASTER_SUBPIXEL_BITS;
-    x2 <<= RASTER_SUBPIXEL_BITS;
-    y2 <<= RASTER_SUBPIXEL_BITS;
-#endif
+    scale = (fx_sin(t3) >> 8) + 300;
+    c = (fx_cos(t2) * scale) >> 8;
+    s = (fx_sin(t2) * scale) >> 8;
 
-    draw_tri(x0, y0, x1, y1, x2, y2, 1);
+    v0 = fx_rotate_xy(v0, c, s);
+    v1 = fx_rotate_xy(v1, c, s);
+    v2 = fx_rotate_xy(v2, c, s);
+
+    v0 = transform_to_screen(v0);
+    v1 = transform_to_screen(v1);
+    v2 = transform_to_screen(v2);
+
+    draw_tri(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y, 1);
 }
 
 static void draw_fps() {
