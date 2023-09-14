@@ -23,6 +23,17 @@
 
 //
 
+static inline fx2_t transform_to_screen(fx2_t v) {
+    fx2_t r;
+    r.x = v.x;
+    r.y = (-v.y * 853) >> 10;
+    r.x += RASTER_SCREEN_CENTER_X;
+    r.y += RASTER_SCREEN_CENTER_Y;
+    return r;
+}
+
+//
+
 static inline fx_t mul_by_raster_block_mask(fx_t x) {
     return (x << 3) - x; // x * RASTER_BLOCK_MASK
 }
@@ -103,12 +114,11 @@ void hline(uint8_t __far* tgt, uint8_t c, uint16_t width) {
 
 //
 
-static void tri(
+static inline void tri(
     fx_t x0, fx_t y0,
     fx_t x1, fx_t y1,
     fx_t x2, fx_t y2,
-    uint8_t color,
-    uint8_t __far* screen)
+    uint8_t color)
 {
     uint16_t min_x, min_y, max_x, max_y;
     fx_t dx0, dx1, dx2;
@@ -197,8 +207,8 @@ static void tri(
 
     //
 
-    screen_row = screen + mul_by_screen_stride(min_y);
-    screen_row_end = screen + mul_by_screen_stride(max_y);
+    screen_row = dblbuf + mul_by_screen_stride(min_y);
+    screen_row_end = dblbuf + mul_by_screen_stride(max_y);
 
     while (screen_row < screen_row_end) {
         fx_t cx0 = c0;
@@ -309,6 +319,40 @@ static void tri(
 
         screen_row += SCREEN_STRIDE << RASTER_BLOCK_SIZE_SHIFT;
     }
+}
+
+#define TRI_SPLITTING_THRESHOLD 0xffff8000LL
+
+static inline void draw_tri(
+    fx_t x0, fx_t y0,
+    fx_t x1, fx_t y1,
+    fx_t x2, fx_t y2,
+    uint8_t c) {
+    if ((fx_abs(x0 - x1) | fx_abs(y0 - y1)) & TRI_SPLITTING_THRESHOLD) {
+        fx_t sx = (x0 + x1) / 2;
+        fx_t sy = (y0 + y1) / 2;
+        draw_tri(x2, y2, x0, y0, sx, sy, x2);
+        draw_tri(x1, y1, x2, y2, sx, sy, c);
+        return;
+    }
+
+    if ((fx_abs(x1 - x2) | fx_abs(y1 - y2)) & TRI_SPLITTING_THRESHOLD) {
+        fx_t sx = (x1 + x2) / 2;
+        fx_t sy = (y1 + y2) / 2;
+        draw_tri(x0, y0, x1, y1, sx, sy, x0);
+        draw_tri(x2, y2, x0, y0, sx, sy, c);
+        return;
+    }
+
+    if ((fx_abs(x2 - x0) | fx_abs(y2 - y0)) & TRI_SPLITTING_THRESHOLD) {
+        fx_t sx = (x0 + x2) / 2;
+        fx_t sy = (y0 + y2) / 2;
+        draw_tri(x1, y1, x2, y2, sx, sy, x1);
+        draw_tri(x0, y0, x1, y1, sx, sy, c);
+        return;
+    }
+
+    tri(x0, y0, x1, y1, x2, y2, c);
 }
 
 #endif

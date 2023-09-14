@@ -3,19 +3,38 @@
 
 static uint8_t opl_register_cache[256] = { 0 };
 
-#if 0
+#if 1
 
-void opl_write(uint8_t reg, uint8_t v);
-#pragma aux opl_write = \
+void opl_write_asm(uint8_t reg, uint8_t v);
+#pragma aux opl_write_asm = \
 "mov dx, word ptr opl_base" \
 "out dx, al" \
+"mov cx, 6" \
+"wait_index:" \
 "in al, dx" \
+"loop wait_index" \
 "inc dx" \
 "mov al, bl" \
 "out dx, al" \
+"mov cx, 35" \
+"wait_data:" \
 "in al, dx" \
-modify [dx] \
+"loop wait_data" \
+modify [cx dx] \
 parm [al] [bl];
+
+static inline void opl_write(uint8_t reg, uint8_t v) {
+    opl_register_cache[reg] = v;
+    opl_write_asm(reg, v);
+}
+
+static inline void opl_write_fast(uint8_t reg, uint8_t v) {
+    if (opl_register_cache[reg] == v)
+        return;
+
+    opl_register_cache[reg] = v;
+    opl_write_asm(reg, v);
+}
 
 #else
 
@@ -110,7 +129,6 @@ static void opl_init() {
         return;
     }
 
-#if 0
     val1 = inp(opl_base);
 
     if ((val1 & 0x06) == 0x00) {
@@ -118,9 +136,6 @@ static void opl_init() {
     } else {
         opl = 2;
     }
-#else
-    opl = 2;
-#endif
 
     opl_reset();
     opl_write(0x01, 0x20);
@@ -136,8 +151,6 @@ static void opl_done() {
 }
 
 static void opl_play() {
-    uint8_t voice = 0;
-
     if (!opl)
         return;
 

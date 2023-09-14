@@ -24,9 +24,9 @@ timer_init_:
     mov al, 0x36
     out dx, al
     mov dx, 0x40
-    mov al, 0x00 ; Divisor MSB
+    mov al, 0x00 ; Divisor LSB
     out dx, al
-    mov al, 0x04 ; LSB
+    mov al, 0x04 ; MSB
     out dx, al
 
     sti
