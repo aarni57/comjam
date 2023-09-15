@@ -13,4 +13,8 @@ static inline uint16_t mul_by_screen_stride(uint16_t x) {
     return (x << 8) + (x << 6);
 }
 
+static inline int32_t mul_by_screen_stride32(int32_t x) {
+    return (x << 8) + (x << 6);
+}
+
 #endif

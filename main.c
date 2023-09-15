@@ -6,15 +6,34 @@
 #include <stdlib.h>
 #include <malloc.h>
 
+//
+
+#if 0
+#   include <assert.h>
+#   define AW_ASSERT assert
+#else
+#   define AW_ASSERT(x)
+#endif
+
+#define abs16 abs
+#define abs32 abs
+
+#define swap16(a, b) { int16_t t = a; a = b; b = t; }
+#define swap32(a, b) { int32_t t = a; a = b; b = t; }
+
+//
+
 #include "vga.h"
 #include "minmax.h"
 #include "util.h"
+#include "pal.h"
 
 //
 
 static uint8_t __far* dblbuf = NULL;
 
 #include "tri.h"
+#include "line.h"
 #include "drawtext.h"
 
 //
@@ -76,105 +95,6 @@ static void update() {
 
 }
 
-#define abs32 abs
-#define swap32(a, b) { int32_t t = a; a = b; b = t; }
-
-static inline void put_pixel(int16_t x, int16_t y, uint8_t c) {
-    dblbuf[x + mul_by_screen_stride(y)] = c;
-}
-
-static inline void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t c) {
-    uint8_t steep = 0;
-    int16_t dx, dy, error2, derror2, x, y;
-
-    if (abs32(x0 - x1) < abs32(y0 - y1)) {
-        swap32(x0, y0);
-        swap32(x1, y1);
-        steep = 1;
-    }
-
-    if (x0 > x1) {
-        swap32(x0, x1);
-        swap32(y0, y1);
-    }
-
-    dx = x1 - x0;
-    dy = y1 - y0;
-    derror2 = abs32(dy) << 1;
-    error2 = 0;
-    y = y0;
-
-    if (steep) {
-        if (y1 > y0) {
-            if (y >= SCREEN_WIDTH)
-                return;
-
-            for (x = x0; x <= x1; x++) {
-                if (x >= 0 && y >= 0 && x < SCREEN_HEIGHT)
-                    put_pixel(y, x, c);
-
-                error2 += derror2;
-                if (error2 > dx) {
-                    y++;
-                    if (y == SCREEN_WIDTH)
-                        return;
-                    error2 -= dx << 1;
-                }
-            }
-        } else {
-            if (y < 0)
-                return;
-
-            for (x = x0; x <= x1; x++) {
-                if (x >= 0 && y < SCREEN_WIDTH && x < SCREEN_HEIGHT)
-                    put_pixel(y, x, c);
-
-                error2 += derror2;
-                if (error2 > dx) {
-                    if (y == 0)
-                        return;
-                    y--;
-                    error2 -= dx << 1;
-                }
-            }
-        }
-    } else {
-        if (y1 > y0) {
-            if (y >= SCREEN_HEIGHT)
-                return;
-
-            for (x = x0; x <= x1; x++) {
-                if (x >= 0 && y >= 0 && x < SCREEN_WIDTH)
-                    put_pixel(x, y, c);
-
-                error2 += derror2;
-                if (error2 > dx) {
-                    y++;
-                    if (y == SCREEN_HEIGHT)
-                        return;
-                    error2 -= dx << 1;
-                }
-            }
-        } else {
-            if (y < 0)
-                return;
-
-            for (x = x0; x <= x1; x++) {
-                if (x >= 0 && x < SCREEN_WIDTH && y < SCREEN_HEIGHT)
-                    put_pixel(x, y, c);
-
-                error2 += derror2;
-                if (error2 > dx) {
-                    if (y == 0)
-                        return;
-                    y--;
-                    error2 -= dx << 1;
-                }
-            }
-        }
-    }
-}
-
 static void draw_test_triangle() {
     fx_t t2, t3, scale, c, s;
     fx2_t v0, v1, v2;
@@ -202,11 +122,11 @@ static void draw_test_triangle() {
     v1 = transform_to_screen(v1);
     v2 = transform_to_screen(v2);
 
-    draw_tri(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y, 1);
+    draw_tri(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y, 122);
 
-    draw_line(v0.x >> RASTER_SUBPIXEL_BITS, v0.y >> RASTER_SUBPIXEL_BITS, v1.x >> RASTER_SUBPIXEL_BITS, v1.y >> RASTER_SUBPIXEL_BITS, 10);
-    draw_line(v1.x >> RASTER_SUBPIXEL_BITS, v1.y >> RASTER_SUBPIXEL_BITS, v2.x >> RASTER_SUBPIXEL_BITS, v2.y >> RASTER_SUBPIXEL_BITS, 10);
-    draw_line(v2.x >> RASTER_SUBPIXEL_BITS, v2.y >> RASTER_SUBPIXEL_BITS, v0.x >> RASTER_SUBPIXEL_BITS, v0.y >> RASTER_SUBPIXEL_BITS, 10);
+    draw_line(v0.x >> RASTER_SUBPIXEL_BITS, v0.y >> RASTER_SUBPIXEL_BITS, v1.x >> RASTER_SUBPIXEL_BITS, v1.y >> RASTER_SUBPIXEL_BITS, 123);
+    draw_line(v1.x >> RASTER_SUBPIXEL_BITS, v1.y >> RASTER_SUBPIXEL_BITS, v2.x >> RASTER_SUBPIXEL_BITS, v2.y >> RASTER_SUBPIXEL_BITS, 123);
+    draw_line(v2.x >> RASTER_SUBPIXEL_BITS, v2.y >> RASTER_SUBPIXEL_BITS, v0.x >> RASTER_SUBPIXEL_BITS, v0.y >> RASTER_SUBPIXEL_BITS, 123);
 }
 
 static void draw_fps() {
@@ -214,14 +134,14 @@ static void draw_fps() {
     uint8_t tens = fps.average / 10;
     buf[0] = tens ? '0' + tens : ' ';
     buf[1] = '0' + (fps.average - tens * 10);
-    draw_text(buf, 320 - 12, 2, 252);
+    draw_text(buf, 320 - 12, 2, 4);
 }
 
 static void draw() {
     draw_test_triangle();
 
-    draw_text("Prerendering graphics...", 6, 6, 252);
-    draw_text_cursor(6, 12, 255);
+    draw_text("Prerendering graphics...", 6, 6, 4);
+    draw_text_cursor(6, 12, 7);
 
     draw_fps();
 }
@@ -236,9 +156,11 @@ void main() {
     timer_init();
 
     vga_set_mode(0x13);
+#if 0
     vga_set_palette(253, 0, 20, 0);
     vga_set_palette(254, 0, 48, 0);
     vga_set_palette(255, 0, 58, 0);
+#endif
 
 #if 0
     {
@@ -251,6 +173,20 @@ void main() {
         }
     }
 #endif
+
+    {
+        uint16_t i;
+        const uint8_t* src = PALETTE;
+        for (i = 0; i < NUM_PALETTE_COLORS; ++i) {
+            uint8_t r = *src++;
+            uint8_t g = *src++;
+            uint8_t b = *src++;
+            r >>= 2;
+            g >>= 2;
+            b >>= 2;
+            vga_set_palette(i, r, g, b);
+        }
+    }
 
     while (!quit) {
         static uint32_t previous_frame_ticks = 0;
