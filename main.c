@@ -27,6 +27,7 @@
 #include "minmax.h"
 #include "util.h"
 #include "pal.h"
+#include "torus.h"
 
 //
 
@@ -92,41 +93,108 @@ static void update_input() {
 static fx_t t = 0;
 
 static void update() {
-
+    t += frame_dt;
 }
 
-static void draw_test_triangle() {
-    fx_t t2, t3, scale, c, s;
-    fx2_t v0, v1, v2;
+static inline void draw_triangle_lines(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x2, fx_t y2, uint8_t c) {
+    x0 = (x0 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+    y0 = (y0 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+    x1 = (x1 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+    y1 = (y1 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+    x2 = (x2 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+    y2 = (y2 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+    draw_line(x0, y0, x1, y1, c);
+    draw_line(x1, y1, x2, y2, c);
+    draw_line(x2, y2, x0, y0, c);
+}
 
-    v0.x = 0;
-    v0.y = -1500;
-    v1.x = 1100;
-    v1.y = 1000;
-    v2.x = -1100;
-    v2.y = 1000;
+static inline fx_t calc_triangle_area(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x2, fx_t y2) {
+    return (x2 - x0) * (y1 - y0) - (y2 - y0) * (x1 - x0);
+}
 
-    t += frame_dt;
-    t2 = t / 128;
-    t3 = t / 96;
+static void draw_mesh(uint16_t num_indices, uint16_t num_vertices,
+    fx_t center_x, fx_t center_y, fx_t center_z,
+    fx_t size_x, fx_t size_y, fx_t size_z,
+    const uint8_t* indices, const int8_t* vertices) {
+    static fx_t tm_buffer[256 * 2];
 
-    scale = (fx_sin(t3) >> 8) + 300;
-    c = (fx_cos(t2) * scale) >> 8;
-    s = (fx_sin(t2) * scale) >> 8;
+    {
+        uint16_t i = 0, j;
+        uint16_t j_end = num_vertices * 3;
+        fx_t c, s;
+        fx_t t2;
 
-    v0 = fx_rotate_xy(v0, c, s);
-    v1 = fx_rotate_xy(v1, c, s);
-    v2 = fx_rotate_xy(v2, c, s);
+        t2 = t / 128;
+        c = fx_cos(t2);
+        s = fx_sin(t2);
 
-    v0 = transform_to_screen(v0);
-    v1 = transform_to_screen(v1);
-    v2 = transform_to_screen(v2);
+        for (j = 0; j < j_end; j += 3) {
+            fx_t x, y, z;
 
-    draw_tri(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y, 122);
+            x = vertices[j + 0];
+            y = vertices[j + 1];
+            z = vertices[j + 2];
 
-    draw_line(v0.x >> RASTER_SUBPIXEL_BITS, v0.y >> RASTER_SUBPIXEL_BITS, v1.x >> RASTER_SUBPIXEL_BITS, v1.y >> RASTER_SUBPIXEL_BITS, 123);
-    draw_line(v1.x >> RASTER_SUBPIXEL_BITS, v1.y >> RASTER_SUBPIXEL_BITS, v2.x >> RASTER_SUBPIXEL_BITS, v2.y >> RASTER_SUBPIXEL_BITS, 123);
-    draw_line(v2.x >> RASTER_SUBPIXEL_BITS, v2.y >> RASTER_SUBPIXEL_BITS, v0.x >> RASTER_SUBPIXEL_BITS, v0.y >> RASTER_SUBPIXEL_BITS, 123);
+            x *= size_x;
+            y *= size_y;
+            z *= size_z;
+
+            x += center_x;
+            y += center_y;
+            z += center_z;
+
+            x >>= 7;
+            y >>= 7;
+            z >>= 7;
+
+            {
+                fx2_t v;
+                v.x = x;
+                v.y = z;
+                v = fx_rotate_xy(v, c, s);
+
+                x = v.x;
+                z = v.y;
+            }
+
+            z += 1400;
+
+            {
+                fx2_t v;
+                v = project_to_screen(x, y, z);
+                tm_buffer[i++] = v.x;
+                tm_buffer[i++] = v.y;
+            }
+        }
+    }
+
+    {
+        uint16_t i;
+        for (i = 0; i < num_indices; i += 3) {
+            uint16_t a, b, c;
+            fx_t x0, y0, x1, y1, x2, y2;
+
+            a = indices[i + 0];
+            b = indices[i + 2];
+            c = indices[i + 1];
+
+            a *= 2;
+            b *= 2;
+            c *= 2;
+
+            x0 = tm_buffer[a + 0];
+            y0 = tm_buffer[a + 1];
+            x1 = tm_buffer[b + 0];
+            y1 = tm_buffer[b + 1];
+            x2 = tm_buffer[c + 0];
+            y2 = tm_buffer[c + 1];
+
+            if (calc_triangle_area(x0, y0, x1, y1, x2, y2) > 0) {
+                draw_tri(x0, y0, x1, y1, x2, y2, 6);
+                draw_triangle_lines(x0, y0, x1, y1, x2, y2, 7);
+            }
+        }
+    }
 }
 
 static void draw_fps() {
@@ -138,7 +206,11 @@ static void draw_fps() {
 }
 
 static void draw() {
-    draw_test_triangle();
+    //draw_test_triangle();
+    draw_mesh(torus_num_indices, torus_num_vertices,
+        torus_center_x, torus_center_y, torus_center_z,
+        torus_size_x, torus_size_y, torus_size_z,
+        torus_indices, torus_vertices);
 
     draw_text("Prerendering graphics...", 6, 6, 4);
     draw_text_cursor(6, 12, 7);
@@ -156,23 +228,6 @@ void main() {
     timer_init();
 
     vga_set_mode(0x13);
-#if 0
-    vga_set_palette(253, 0, 20, 0);
-    vga_set_palette(254, 0, 48, 0);
-    vga_set_palette(255, 0, 58, 0);
-#endif
-
-#if 0
-    {
-        uint8_t i, r, g, b;
-        for (i = 0; i < 64; ++i) {
-            r = minu8(i * 3 / 2, 63);
-            g = i > 32 ? minu8((i - 32) << 1, 63) : 0;
-            b = i > 52 ? minu8((i - 52) << 2, 63) : 0;
-            vga_set_palette(i, r, g, b);
-        }
-    }
-#endif
 
     {
         uint16_t i;

@@ -17,18 +17,32 @@
 #define RASTER_SUBPIXEL_BITS 4
 #define RASTER_SUBPIXEL_ONE (1 << RASTER_SUBPIXEL_BITS)
 #define RASTER_SUBPIXEL_MASK (RASTER_SUBPIXEL_ONE - 1)
+#define RASTER_SUBPIXEL_HALF (RASTER_SUBPIXEL_ONE >> 1)
 
 #define RASTER_SCREEN_CENTER_X ((fx_t)SCREEN_CENTER_X << RASTER_SUBPIXEL_BITS)
 #define RASTER_SCREEN_CENTER_Y ((fx_t)SCREEN_CENTER_Y << RASTER_SUBPIXEL_BITS)
 
 //
 
-static inline fx2_t transform_to_screen(fx2_t v) {
+static inline fx2_t project_to_screen(fx_t x, fx_t y, fx_t z) {
+    fx_t ooz;
     fx2_t r;
-    r.x = v.x;
-    r.y = (-v.y * 853) >> 10;
+
+    ooz = (fx_t)65536 / z;
+    r.x = (x * ooz) >> 8;
+    r.y = (y * ooz) >> 8;
+
+    r.x *= SCREEN_LOGICAL_HEIGHT;
+    r.y *= SCREEN_HEIGHT;
+
+    r.x >>= 8 - RASTER_SUBPIXEL_BITS;
+    r.y >>= 8 - RASTER_SUBPIXEL_BITS;
+
+    r.y = -r.y;
+
     r.x += RASTER_SCREEN_CENTER_X;
     r.y += RASTER_SCREEN_CENTER_Y;
+
     return r;
 }
 
