@@ -33,9 +33,8 @@
 
 static uint8_t __far* dblbuf = NULL;
 
-#include "tri.h"
-#include "line.h"
 #include "drawtext.h"
+#include "draw.h"
 
 //
 
@@ -96,107 +95,6 @@ static void update() {
     t += frame_dt;
 }
 
-static inline void draw_triangle_lines(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x2, fx_t y2, uint8_t c) {
-    x0 = (x0 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
-    y0 = (y0 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
-    x1 = (x1 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
-    y1 = (y1 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
-    x2 = (x2 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
-    y2 = (y2 + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
-    draw_line(x0, y0, x1, y1, c);
-    draw_line(x1, y1, x2, y2, c);
-    draw_line(x2, y2, x0, y0, c);
-}
-
-static inline fx_t calc_triangle_area(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x2, fx_t y2) {
-    return (x2 - x0) * (y1 - y0) - (y2 - y0) * (x1 - x0);
-}
-
-static void draw_mesh(uint16_t num_indices, uint16_t num_vertices,
-    fx_t center_x, fx_t center_y, fx_t center_z,
-    fx_t size_x, fx_t size_y, fx_t size_z,
-    const uint8_t* indices, const int8_t* vertices) {
-    static fx_t tm_buffer[256 * 2];
-
-    {
-        uint16_t i = 0, j;
-        uint16_t j_end = num_vertices * 3;
-        fx_t c, s;
-        fx_t t2;
-
-        t2 = t / 128;
-        c = fx_cos(t2);
-        s = fx_sin(t2);
-
-        for (j = 0; j < j_end; j += 3) {
-            fx_t x, y, z;
-
-            x = vertices[j + 0];
-            y = vertices[j + 1];
-            z = vertices[j + 2];
-
-            x *= size_x;
-            y *= size_y;
-            z *= size_z;
-
-            x += center_x;
-            y += center_y;
-            z += center_z;
-
-            x >>= 7;
-            y >>= 7;
-            z >>= 7;
-
-            {
-                fx2_t v;
-                v.x = x;
-                v.y = z;
-                v = fx_rotate_xy(v, c, s);
-
-                x = v.x;
-                z = v.y;
-            }
-
-            z += 1400;
-
-            {
-                fx2_t v;
-                v = project_to_screen(x, y, z);
-                tm_buffer[i++] = v.x;
-                tm_buffer[i++] = v.y;
-            }
-        }
-    }
-
-    {
-        uint16_t i;
-        for (i = 0; i < num_indices; i += 3) {
-            uint16_t a, b, c;
-            fx_t x0, y0, x1, y1, x2, y2;
-
-            a = indices[i + 0];
-            b = indices[i + 2];
-            c = indices[i + 1];
-
-            a *= 2;
-            b *= 2;
-            c *= 2;
-
-            x0 = tm_buffer[a + 0];
-            y0 = tm_buffer[a + 1];
-            x1 = tm_buffer[b + 0];
-            y1 = tm_buffer[b + 1];
-            x2 = tm_buffer[c + 0];
-            y2 = tm_buffer[c + 1];
-
-            if (calc_triangle_area(x0, y0, x1, y1, x2, y2) > 0) {
-                draw_tri(x0, y0, x1, y1, x2, y2, 6);
-                draw_triangle_lines(x0, y0, x1, y1, x2, y2, 7);
-            }
-        }
-    }
-}
-
 static void draw_fps() {
     char buf[3] = { 0 };
     uint8_t tens = fps.average / 10;
@@ -206,11 +104,10 @@ static void draw_fps() {
 }
 
 static void draw() {
-    //draw_test_triangle();
     draw_mesh(torus_num_indices, torus_num_vertices,
-        torus_center_x, torus_center_y, torus_center_z,
-        torus_size_x, torus_size_y, torus_size_z,
-        torus_indices, torus_vertices);
+        &torus_center, &torus_size, t / 128, torus_indices, torus_vertices);
+
+    flush_draw_buffer();
 
     draw_text("Prerendering graphics...", 6, 6, 4);
     draw_text_cursor(6, 12, 7);
@@ -221,6 +118,16 @@ static void draw() {
 void main() {
     dblbuf = (uint8_t __far*)_fmalloc(SCREEN_NUM_PIXELS);
     if (!dblbuf) {
+        goto exit;
+    }
+
+    draw_buffer = (int16_t __far*)_fmalloc(sizeof(int16_t) * DRAW_BUFFER_SIZE);
+    if (!draw_buffer) {
+        goto exit;
+    }
+
+    sort_buffer = (uint32_t __far*)_fmalloc(sizeof(uint32_t) * DRAW_BUFFER_SIZE);
+    if (!sort_buffer) {
         goto exit;
     }
 
@@ -273,9 +180,10 @@ void main() {
         _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);
     }
 
-    _ffree(dblbuf);
-
 exit:
+    _ffree(dblbuf);
+    _ffree(draw_buffer);
+    _ffree(sort_buffer);
     timer_cleanup();
     opl_done();
     vga_set_mode(0x3);

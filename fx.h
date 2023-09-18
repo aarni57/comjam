@@ -1,13 +1,9 @@
 #ifndef FX_H
 #define FX_H
 
-#include <stdint.h>
+#include "fxtypes.h"
 
-typedef int32_t fx_t;
-
-typedef struct fx2_t {
-    fx_t x, y;
-} fx2_t;
+//
 
 #define FX_DECIMAL_BITS 16
 #define FX_ONE ((fx_t)1 << FX_DECIMAL_BITS)

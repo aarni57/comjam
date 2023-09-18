@@ -1,13 +1,10 @@
+#include "fxtypes.h"
+
 #define torus_num_vertices 56
 #define torus_num_indices 324
 
-#define torus_center_x 0
-#define torus_center_y 192
-#define torus_center_z 0
-
-#define torus_size_x 768
-#define torus_size_y 384
-#define torus_size_z 256
+const fx3_t torus_center = { 0, 192, 0 };
+const fx3_t torus_size = { 768, 384, 256 };
 
 const uint8_t torus_indices[] = {
 0, 1, 2, 2, 4, 0, 2, 1, 8, 8, 10, 2, 8, 13, 14, 14,

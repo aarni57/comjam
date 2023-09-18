@@ -61,16 +61,13 @@ print("aabb_center_z " + str(aabb_center_z))
 position = 16
 
 with open(os.path.join(output_path, name + ".h"), "w") as f:
+    f.write("#include \"fxtypes.h\"\n\n")
+
     f.write("#define " + name + "_num_vertices " + str(num_vertices) + "\n")
     f.write("#define " + name + "_num_indices " + str(num_indices) + "\n\n")
 
-    f.write("#define " + name + "_center_x " + str(aabb_center_x) + "\n")
-    f.write("#define " + name + "_center_y " + str(aabb_center_y) + "\n")
-    f.write("#define " + name + "_center_z " + str(aabb_center_z) + "\n\n")
-
-    f.write("#define " + name + "_size_x " + str(aabb_size_x) + "\n")
-    f.write("#define " + name + "_size_y " + str(aabb_size_y) + "\n")
-    f.write("#define " + name + "_size_z " + str(aabb_size_z) + "\n\n")
+    f.write("const fx3_t " + name + "_center = { " + str(aabb_center_x) + ", " + str(aabb_center_y) + ", " + str(aabb_center_z) + " };\n")
+    f.write("const fx3_t " + name + "_size = { " + str(aabb_size_x) + ", " + str(aabb_size_y) + ", " + str(aabb_size_z) + " };\n\n")
 
     f.write("const uint8_t " + name + "_indices[] = {\n")
 
