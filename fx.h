@@ -96,11 +96,25 @@ static inline fx_t fx_cos(fx_t x) {
 
 //
 
-static inline fx2_t fx_rotate_xy(fx2_t v, fx_t c, fx_t s) {
+static inline fx2_t fx2_rotate(fx2_t v, fx_t c, fx_t s) {
     fx2_t r;
     r.x = (v.x * c - v.y * s) >> FX_DECIMAL_BITS;
     r.y = (v.y * c + v.x * s) >> FX_DECIMAL_BITS;
     return r;
+}
+
+//
+
+static inline void fx3x3_identity(fx3x3_t* m) {
+    m->m[0] = FX_ONE;
+    m->m[1] = 0;
+    m->m[2] = 0;
+    m->m[3] = 0;
+    m->m[4] = FX_ONE;
+    m->m[5] = 0;
+    m->m[6] = 0;
+    m->m[7] = 0;
+    m->m[8] = FX_ONE;
 }
 
 #endif

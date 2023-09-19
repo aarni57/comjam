@@ -104,8 +104,18 @@ static void draw_fps() {
 }
 
 static void draw() {
+    fx3x3_t rotation;
+    fx3_t translation;
+
+    fx3x3_identity(&rotation);
+
+    translation.x = 0;
+    translation.y = 0;
+    translation.z = 2048;
+
     draw_mesh(torus_num_indices, torus_num_vertices,
-        &torus_center, &torus_size, t / 128, torus_indices, torus_vertices);
+        &rotation, &translation,
+        torus_indices, torus_vertices);
 
     flush_draw_buffer();
 
@@ -121,12 +131,17 @@ void main() {
         goto exit;
     }
 
-    draw_buffer = (int16_t __far*)_fmalloc(sizeof(int16_t) * DRAW_BUFFER_SIZE);
+    tm_buffer = (fx_t __far*)_fmalloc(sizeof(fx_t) * TM_BUFFER_SIZE);
+    if (!tm_buffer) {
+        goto exit;
+    }
+
+    draw_buffer = (int16_t __far*)_fmalloc(sizeof(int16_t) * 8 * MAX_TRIANGLES);
     if (!draw_buffer) {
         goto exit;
     }
 
-    sort_buffer = (uint32_t __far*)_fmalloc(sizeof(uint32_t) * DRAW_BUFFER_SIZE);
+    sort_buffer = (uint32_t __far*)_fmalloc(sizeof(uint32_t) * MAX_TRIANGLES);
     if (!sort_buffer) {
         goto exit;
     }
@@ -143,10 +158,7 @@ void main() {
             uint8_t r = *src++;
             uint8_t g = *src++;
             uint8_t b = *src++;
-            r >>= 2;
-            g >>= 2;
-            b >>= 2;
-            vga_set_palette(i, r, g, b);
+            vga_set_palette(i, r >> 2, g >> 2, b >> 2);
         }
     }
 
@@ -182,6 +194,7 @@ void main() {
 
 exit:
     _ffree(dblbuf);
+    _ffree(tm_buffer);
     _ffree(draw_buffer);
     _ffree(sort_buffer);
     timer_cleanup();

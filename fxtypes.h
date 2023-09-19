@@ -13,4 +13,8 @@ typedef struct fx3_t {
     fx_t x, y, z;
 } fx3_t;
 
+typedef struct fx3x3_t {
+    fx_t m[9];
+} fx3x3_t;
+
 #endif

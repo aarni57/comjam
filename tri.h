@@ -24,30 +24,6 @@
 
 //
 
-static inline fx2_t project_to_screen(fx_t x, fx_t y, fx_t z) {
-    fx_t ooz;
-    fx2_t r;
-
-    ooz = (fx_t)65536 / z;
-    r.x = (x * ooz) >> 8;
-    r.y = (y * ooz) >> 8;
-
-    r.x *= SCREEN_LOGICAL_HEIGHT;
-    r.y *= SCREEN_HEIGHT;
-
-    r.x >>= 8 - RASTER_SUBPIXEL_BITS;
-    r.y >>= 8 - RASTER_SUBPIXEL_BITS;
-
-    r.y = -r.y;
-
-    r.x += RASTER_SCREEN_CENTER_X;
-    r.y += RASTER_SCREEN_CENTER_Y;
-
-    return r;
-}
-
-//
-
 static inline fx_t mul_by_raster_block_mask(fx_t x) {
     return (x << 3) - x; // x * RASTER_BLOCK_MASK
 }
