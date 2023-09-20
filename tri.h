@@ -28,80 +28,6 @@ static inline fx_t mul_by_raster_block_mask(fx_t x) {
     return (x << 3) - x; // x * RASTER_BLOCK_MASK
 }
 
-#if 1
-
-#define PASS_FAR_PTR(ptr) (uint16_t)(ptr), (uint16_t)((uint32_t)(ptr) >> 16)
-
-void fill_block(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
-
-#pragma aux fill_block = \
-"mov ah, al" \
-"shl bx, 3" \
-"mov dx, 320" \
-"sub dx, bx" \
-"shr bx, 1" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-"add di, dx" \
-"mov cx, bx" \
-"rep stosw" \
-modify [cx dx] \
-parm [di] [es] [al] [bx];
-
-void hline(uint16_t tgt_low, uint16_t tgt_high, uint8_t c, uint16_t width);
-#pragma aux hline = \
-"mov ah, al" \
-"shr cx, 1" \
-"rep stosw" \
-"adc cx, cx" \
-"rep stosb" \
-modify [ah] \
-parm [di] [es] [al] [cx];
-
-#else
-
-#define PASS_FAR_PTR(ptr) ptr
-
-void fill_block(uint8_t __far* tgt, uint8_t c, uint16_t width) {
-    uint8_t iy;
-    width <<= RASTER_BLOCK_SIZE_SHIFT;
-    for (iy = 0; iy < RASTER_BLOCK_SIZE; ++iy) {
-        uint16_t ix;
-        for (ix = 0; ix < width; ix++) {
-            tgt[ix] = c;
-        }
-
-        tgt += SCREEN_STRIDE;
-    }
-}
-
-void hline(uint8_t __far* tgt, uint8_t c, uint16_t width) {
-    uint8_t __far* tgt_end = tgt + width;
-    while (tgt < tgt_end) {
-        *tgt++ = c;
-    }
-}
-
-#endif
-
 //
 
 static inline void tri(
@@ -240,7 +166,51 @@ static inline void tri(
             }
 
             if (num_completely_filled != 0) {
-                fill_block(PASS_FAR_PTR(screen_block), color, num_completely_filled);
+#if 0
+                uint8_t iy;
+                uint8_t width = num_completely_filled << RASTER_BLOCK_SIZE_SHIFT;
+                for (iy = 0; iy < RASTER_BLOCK_SIZE; ++iy) {
+                    uint16_t ix;
+                    for (ix = 0; ix < width; ix++) {
+                        screen_block[ix] = color;
+                    }
+
+                    screen_block += SCREEN_STRIDE;
+                }
+#else
+                __asm {
+                    .386
+                    mov bl, num_completely_filled
+                    shl bl, 1
+                    mov bh, 8
+
+                    mov al, color
+                    mov ah, al
+                    shl eax, 8
+                    mov al, ah
+                    shl eax, 8
+                    mov al, ah
+
+                    mov edx, screen_block
+                    ror edx, 16
+                    mov es, dx
+                    rol edx, 16
+
+                    vl:
+                    mov di, dx
+
+                    movzx cx, bl
+                    rep stosd
+
+                    dec bh
+                    jz done
+
+                    add dx, 320
+
+                    jmp vl
+                    done:
+                }
+#endif
             } else {
                 // Partially filled
                 fx_t ciy0 = cx0;
@@ -253,6 +223,7 @@ static inline void tri(
                     fx_t cix2 = ciy2;
 
                     uint8_t left = 0;
+
                     while ((cix0 | cix1 | cix2) <= 0) {
                         cix0 -= dy0;
                         cix1 -= dy1;
@@ -279,8 +250,32 @@ static inline void tri(
                         }
 
                         {
+#if 0
                             uint8_t __far* tgt = screen_block + left;
-                            hline(PASS_FAR_PTR(tgt), color, right - left);
+                            uint16_t width = right - left;
+                            uint8_t __far* tgt_end = tgt + width;
+                            while (tgt < tgt_end) {
+                                *tgt++ = color;
+                            }
+#else
+                            __asm {
+                                .386
+                                mov edx, screen_block
+                                movzx eax, left
+                                add edx, eax
+                                movzx cx, right
+                                sub cx, ax
+                                mov di, dx
+                                shr edx, 16
+                                mov es, dx
+                                mov al, color
+                                mov ah, al
+                                shr cx, 1
+                                rep stosw
+                                adc cx, cx
+                                rep stosb
+                            }
+#endif
                         }
                     }
 
@@ -311,7 +306,7 @@ static inline void tri(
     }
 }
 
-#define TRI_SPLITTING_THRESHOLD 0xffff8000LL
+#define TRI_SPLITTING_THRESHOLD 0xffff8000
 
 static inline void draw_tri(
     fx_t x0, fx_t y0,
@@ -321,7 +316,7 @@ static inline void draw_tri(
     if ((fx_abs(x0 - x1) | fx_abs(y0 - y1)) & TRI_SPLITTING_THRESHOLD) {
         fx_t sx = (x0 + x1) / 2;
         fx_t sy = (y0 + y1) / 2;
-        draw_tri(x2, y2, x0, y0, sx, sy, x2);
+        draw_tri(x2, y2, x0, y0, sx, sy, c);
         draw_tri(x1, y1, x2, y2, sx, sy, c);
         return;
     }
@@ -329,7 +324,7 @@ static inline void draw_tri(
     if ((fx_abs(x1 - x2) | fx_abs(y1 - y2)) & TRI_SPLITTING_THRESHOLD) {
         fx_t sx = (x1 + x2) / 2;
         fx_t sy = (y1 + y2) / 2;
-        draw_tri(x0, y0, x1, y1, sx, sy, x0);
+        draw_tri(x0, y0, x1, y1, sx, sy, c);
         draw_tri(x2, y2, x0, y0, sx, sy, c);
         return;
     }
@@ -337,7 +332,7 @@ static inline void draw_tri(
     if ((fx_abs(x2 - x0) | fx_abs(y2 - y0)) & TRI_SPLITTING_THRESHOLD) {
         fx_t sx = (x0 + x2) / 2;
         fx_t sy = (y0 + y2) / 2;
-        draw_tri(x1, y1, x2, y2, sx, sy, x1);
+        draw_tri(x1, y1, x2, y2, sx, sy, c);
         draw_tri(x0, y0, x1, y1, sx, sy, c);
         return;
     }

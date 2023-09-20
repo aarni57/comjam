@@ -6,14 +6,30 @@
 //
 
 #define FX_DECIMAL_BITS 16
-#define FX_ONE ((fx_t)1 << FX_DECIMAL_BITS)
+#define FX_ONE (1L << FX_DECIMAL_BITS)
 #define FX_DECIMAL_MASK (FX_ONE - 1)
 #define FX_HALF (FX_ONE / 2)
 
 #define fx_min min32
 #define fx_max max32
 #define fx_clamp clamp32
+
 #define fx_abs abs
+
+//
+
+static inline fx_t fx_mul(fx_t x, fx_t y) {
+    int32_t a, c;
+    uint32_t b, d;
+
+    a = x >> 16;
+    b = x & 0xffff;
+
+    c = y >> 16;
+    d = y & 0xffff;
+
+    return ((a * c) << 16) + a * d + c * b + ((b * d) >> 16);
+}
 
 //
 
@@ -98,12 +114,25 @@ static inline fx_t fx_cos(fx_t x) {
 
 static inline fx2_t fx2_rotate(fx2_t v, fx_t c, fx_t s) {
     fx2_t r;
-    r.x = (v.x * c - v.y * s) >> FX_DECIMAL_BITS;
-    r.y = (v.y * c + v.x * s) >> FX_DECIMAL_BITS;
+    r.x = fx_mul(v.x, c) - fx_mul(v.y, s);
+    r.y = fx_mul(v.y, c) + fx_mul(v.x, s);
     return r;
 }
 
 //
+
+#define FX4X3_00 0
+#define FX4X3_01 1
+#define FX4X3_02 2
+#define FX4X3_10 3
+#define FX4X3_11 4
+#define FX4X3_12 5
+#define FX4X3_20 6
+#define FX4X3_21 7
+#define FX4X3_22 8
+#define FX4X3_30 9
+#define FX4X3_31 10
+#define FX4X3_32 11
 
 static inline void fx3x3_identity(fx3x3_t* m) {
     m->m[0] = FX_ONE;
@@ -115,6 +144,73 @@ static inline void fx3x3_identity(fx3x3_t* m) {
     m->m[6] = 0;
     m->m[7] = 0;
     m->m[8] = FX_ONE;
+}
+
+static inline void fx4x3_identity(fx4x3_t* m) {
+    m->m[0] = FX_ONE;
+    m->m[1] = 0;
+    m->m[2] = 0;
+    m->m[3] = 0;
+    m->m[4] = FX_ONE;
+    m->m[5] = 0;
+    m->m[6] = 0;
+    m->m[7] = 0;
+    m->m[8] = FX_ONE;
+    m->m[9] = 0;
+    m->m[10] = 0;
+    m->m[11] = 0;
+}
+
+static inline void fx4x3_translation(fx4x3_t* m, fx_t x, fx_t y, fx_t z) {
+    m->m[0] = FX_ONE;
+    m->m[1] = 0;
+    m->m[2] = 0;
+    m->m[3] = 0;
+    m->m[4] = FX_ONE;
+    m->m[5] = 0;
+    m->m[6] = 0;
+    m->m[7] = 0;
+    m->m[8] = FX_ONE;
+    m->m[9] = x;
+    m->m[10] = y;
+    m->m[11] = z;
+}
+
+static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v) {
+    r->x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]) + m->m[FX4X3_30];
+    r->y = fx_mul(v->x, m->m[FX4X3_10]) + fx_mul(v->y, m->m[FX4X3_11]) + fx_mul(v->z, m->m[FX4X3_12]) + m->m[FX4X3_31];
+    r->z = fx_mul(v->x, m->m[FX4X3_20]) + fx_mul(v->y, m->m[FX4X3_21]) + fx_mul(v->z, m->m[FX4X3_22]) + m->m[FX4X3_32];
+}
+
+static inline void fx4x3_mul(fx4x3_t* r, const fx4x3_t* a, const fx4x3_t* b) {
+    r->m[FX4X3_00] = fx_mul(a->m[FX4X3_00], b->m[FX4X3_00]) +
+        fx_mul(a->m[FX4X3_01], b->m[FX4X3_10]) +
+        fx_mul(a->m[FX4X3_02], b->m[FX4X3_20]);
+    r->m[FX4X3_01] = fx_mul(a->m[FX4X3_00], b->m[FX4X3_01]) +
+        fx_mul(a->m[FX4X3_01], b->m[FX4X3_11]) +
+        fx_mul(a->m[FX4X3_02], b->m[FX4X3_21]);
+    r->m[FX4X3_02] = fx_mul(a->m[FX4X3_00], b->m[FX4X3_02]) +
+        fx_mul(a->m[FX4X3_01], b->m[FX4X3_12]) +
+        fx_mul(a->m[FX4X3_02], b->m[FX4X3_22]);
+    r->m[FX4X3_10] = fx_mul(a->m[FX4X3_10], b->m[FX4X3_00]) +
+        fx_mul(a->m[FX4X3_11], b->m[FX4X3_10]) +
+        fx_mul(a->m[FX4X3_12], b->m[FX4X3_20]);
+    r->m[FX4X3_11] = fx_mul(a->m[FX4X3_10], b->m[FX4X3_01]) +
+        fx_mul(a->m[FX4X3_11], b->m[FX4X3_11]) +
+        fx_mul(a->m[FX4X3_12], b->m[FX4X3_21]);
+    r->m[FX4X3_12] = fx_mul(a->m[FX4X3_10], b->m[FX4X3_02]) +
+        fx_mul(a->m[FX4X3_11], b->m[FX4X3_12]) +
+        fx_mul(a->m[FX4X3_12], b->m[FX4X3_22]);
+    r->m[FX4X3_20] = fx_mul(a->m[FX4X3_20], b->m[FX4X3_00]) +
+        fx_mul(a->m[FX4X3_21], b->m[FX4X3_10]) +
+        fx_mul(a->m[FX4X3_22], b->m[FX4X3_20]);
+    r->m[FX4X3_21] = fx_mul(a->m[FX4X3_20], b->m[FX4X3_01]) +
+        fx_mul(a->m[FX4X3_21], b->m[FX4X3_11]) +
+        fx_mul(a->m[FX4X3_22], b->m[FX4X3_21]);
+    r->m[FX4X3_22] = fx_mul(a->m[FX4X3_20], b->m[FX4X3_02]) +
+        fx_mul(a->m[FX4X3_21], b->m[FX4X3_12]) +
+        fx_mul(a->m[FX4X3_22], b->m[FX4X3_22]);
+    fx_transform_point((fx3_t*)&r->m[FX4X3_30], a, (const fx3_t*)&b->m[FX4X3_30]);
 }
 
 #endif

@@ -19,12 +19,7 @@
 #define AW_SORT_NORDER(a, b) \
     ((indices[a] & AW_SORT_ORDER_MAX) < (indices[b] & AW_SORT_ORDER_MAX))
 
-#define AW_SORT_SWAP(a, b) \
-    { \
-        uint32_t t = indices[a]; \
-        indices[a] = indices[b]; \
-        indices[b] = t; \
-    }
+#define AW_SORT_SWAP(a, b) swap32(indices[a], indices[b])
 
 // Define the Leonardo numbers
 static inline int16_t leonardo(int16_t k) {

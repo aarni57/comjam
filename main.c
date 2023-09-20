@@ -38,10 +38,7 @@ static uint8_t __far* dblbuf = NULL;
 
 //
 
-#define OPL_BASE_DEFAULT 0x388
-
 static int opl = 0;
-static uint16_t opl_base = OPL_BASE_DEFAULT;
 
 #include "opl.h"
 
@@ -97,24 +94,34 @@ static void update() {
 
 static void draw_fps() {
     char buf[3] = { 0 };
-    uint8_t tens = fps.average / 10;
+    uint32_t clamped_average = minu32(fps.average, 99);
+    uint8_t tens = clamped_average / 10;
     buf[0] = tens ? '0' + tens : ' ';
-    buf[1] = '0' + (fps.average - tens * 10);
+    buf[1] = '0' + (clamped_average - tens * 10);
     draw_text(buf, 320 - 12, 2, 4);
 }
 
 static void draw() {
-    fx3x3_t rotation;
-    fx3_t translation;
+    fx4x3_t view_matrix, model_matrix, mesh_adjust_matrix, tmp, model_view_matrix;
 
-    fx3x3_identity(&rotation);
+    fx4x3_identity(&view_matrix);
+    view_matrix.m[FX4X3_32] = 2048;
 
-    translation.x = 0;
-    translation.y = 0;
-    translation.z = 2048;
+    fx4x3_translation(&model_matrix, 1000, 0, 0);
 
-    draw_mesh(torus_num_indices, torus_num_vertices,
-        &rotation, &translation,
+    fx4x3_identity(&mesh_adjust_matrix);
+    mesh_adjust_matrix.m[FX4X3_00] = torus_size.x << 9;
+    mesh_adjust_matrix.m[FX4X3_11] = torus_size.y << 9;
+    mesh_adjust_matrix.m[FX4X3_22] = torus_size.z << 9;
+    mesh_adjust_matrix.m[FX4X3_30] = torus_center.x;
+    mesh_adjust_matrix.m[FX4X3_31] = torus_center.y;
+    mesh_adjust_matrix.m[FX4X3_32] = torus_center.z;
+
+    fx4x3_mul(&tmp, &model_matrix, &mesh_adjust_matrix);
+    fx4x3_mul(&model_view_matrix, &view_matrix, &tmp);
+
+    draw_mesh(&model_view_matrix, 2,
+        torus_num_indices, torus_num_vertices,
         torus_indices, torus_vertices);
 
     flush_draw_buffer();
@@ -188,7 +195,7 @@ void main() {
 
         _fmemset(dblbuf, 0, SCREEN_NUM_PIXELS);
         draw();
-        vga_wait_for_retrace();
+        //vga_wait_for_retrace();
         _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);
     }
 
@@ -201,6 +208,6 @@ exit:
     opl_done();
     vga_set_mode(0x3);
     putz(exit_message);
-    set_text_cursor(2, 0);
+    set_text_cursor(1, 0);
     kb_clear_buffer();
 }

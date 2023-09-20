@@ -13,40 +13,17 @@
 
 #define OOZ_BITS 16
 
-static inline fx2_t project_to_screen(fx_t x, fx_t y, fx_t z) {
-    fx_t ooz;
-    fx2_t r;
+static inline void project_to_screen(fx3_t* v) {
+    fx_t ooz = (1L << (RASTER_SUBPIXEL_BITS + OOZ_BITS)) / v->z;
 
-    r.x = x;
-    r.y = y;
+    v->x *= SCREEN_LOGICAL_HEIGHT;
+    v->y *= SCREEN_HEIGHT;
 
-    r.x *= SCREEN_LOGICAL_HEIGHT;
-    r.y *= SCREEN_HEIGHT;
+    v->x = (v->x * ooz) >> OOZ_BITS;
+    v->y = (v->y * -ooz) >> OOZ_BITS;
 
-    ooz = ((fx_t)(1 << RASTER_SUBPIXEL_BITS) << OOZ_BITS) / z;
-    r.x = (r.x * ooz) >> OOZ_BITS;
-    r.y = (r.y * ooz) >> OOZ_BITS;
-
-    r.y = -r.y;
-
-    r.x += RASTER_SCREEN_CENTER_X;
-    r.y += RASTER_SCREEN_CENTER_Y;
-
-    return r;
-}
-
-static inline void transform_vertex(fx3_t* v, const fx3x3_t* rotation,
-    const fx3_t* translation) {
-
-#if 0
-    v->x = ((v->x * size->x) >> 7) + center->x;
-    v->y = ((v->y * size->y) >> 7) + center->y;
-    v->z = ((v->z * size->z) >> 7) + center->z;
-#endif
-
-    v->x = ((v->x * rotation->m[0] + v->y * rotation->m[1] + v->z * rotation->m[2]) >> 16) + translation->x;
-    v->y = ((v->x * rotation->m[3] + v->y * rotation->m[4] + v->z * rotation->m[5]) >> 16) + translation->y;
-    v->z = ((v->x * rotation->m[6] + v->y * rotation->m[7] + v->z * rotation->m[8]) >> 16) + translation->z;
+    v->x += RASTER_SCREEN_CENTER_X;
+    v->y += RASTER_SCREEN_CENTER_Y;
 }
 
 //
@@ -77,8 +54,8 @@ static uint16_t num_triangles = 0;
 static int16_t __far* draw_buffer = NULL;
 static uint32_t __far* sort_buffer = NULL;
 
-static void draw_mesh(uint16_t num_indices, uint16_t num_vertices,
-    const fx3x3_t* model_view_rotation, const fx3_t* model_view_translation,
+static void draw_mesh(const fx4x3_t* model_view_matrix, uint8_t color,
+    uint16_t num_indices, uint16_t num_vertices,
     const uint8_t* indices, const int8_t* vertices) {
 
     if (num_triangles == MAX_TRIANGLES) {
@@ -90,19 +67,18 @@ static void draw_mesh(uint16_t num_indices, uint16_t num_vertices,
         uint16_t j_end = num_vertices * 3;
 
         for (j = 0; j < j_end; j += 3) {
-            fx3_t p;
-            fx2_t v;
+            fx3_t p, v;
 
             p.x = vertices[j + 0];
             p.y = vertices[j + 1];
             p.z = vertices[j + 2];
 
-            transform_vertex(&p, model_view_rotation, model_view_translation);
+            fx_transform_point(&v, model_view_matrix, &p);
 
-            v = project_to_screen(p.x, p.y, p.z);
+            project_to_screen(&v);
             tm_buffer[i++] = v.x;
             tm_buffer[i++] = v.y;
-            tm_buffer[i++] = p.z;
+            tm_buffer[i++] = v.z;
         }
     }
 
@@ -143,15 +119,13 @@ static void draw_mesh(uint16_t num_indices, uint16_t num_vertices,
             y1 = tm_buffer[c + 1];
 
             if (calc_triangle_area(x0, y0, x1, y1, x2, y2) > 0) {
-                uint8_t c = 7; // TODO
-
                 *draw_buffer_tgt++ = x0;
                 *draw_buffer_tgt++ = y0;
                 *draw_buffer_tgt++ = x1;
                 *draw_buffer_tgt++ = y1;
                 *draw_buffer_tgt++ = x2;
                 *draw_buffer_tgt++ = y2;
-                *draw_buffer_tgt++ = c;
+                *draw_buffer_tgt++ = color;
                 *draw_buffer_tgt++ = 0; // Reserved
 
                 *sort_buffer_tgt++ = ((z0 + z1 + z2) >> 4) | ((uint32_t)num_triangles << 16);
@@ -167,8 +141,8 @@ static void draw_mesh(uint16_t num_indices, uint16_t num_vertices,
 
 static void flush_draw_buffer() {
     int16_t x0, y0, x1, y1, x2, y2;
-    uint8_t c;
-    uint16_t i, count;
+    uint8_t color;
+    uint16_t i;
 
     smoothsort(sort_buffer, num_triangles);
 
@@ -182,10 +156,10 @@ static void flush_draw_buffer() {
         y1 = draw_buffer[j + 3];
         x2 = draw_buffer[j + 4];
         y2 = draw_buffer[j + 5];
-        c = draw_buffer[j + 6];
+        color = draw_buffer[j + 6];
 
-        draw_tri(x0, y0, x1, y1, x2, y2, 6);
-        draw_triangle_lines(x0, y0, x1, y1, x2, y2, 7);
+        draw_tri(x0, y0, x1, y1, x2, y2, color);
+        //draw_triangle_lines(x0, y0, x1, y1, x2, y2, color + 1);
      }
 
      num_triangles = 0;

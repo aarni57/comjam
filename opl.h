@@ -1,13 +1,15 @@
 #ifndef OPL_H
 #define OPL_H
 
-static uint8_t opl_register_cache[256] = { 0 };
+#define OPL_BASE 0x388
+
+static uint8_t opl_register_states[256] = { 0 };
 
 #if 1
 
 void opl_write_asm(uint8_t reg, uint8_t v);
 #pragma aux opl_write_asm = \
-"mov dx, word ptr opl_base" \
+"mov dx, 388h" \
 "out dx, al" \
 "mov cx, 6" \
 "wait_index:" \
@@ -24,15 +26,15 @@ modify [cx dx] \
 parm [al] [bl];
 
 static inline void opl_write(uint8_t reg, uint8_t v) {
-    opl_register_cache[reg] = v;
+    opl_register_states[reg] = v;
     opl_write_asm(reg, v);
 }
 
 static inline void opl_write_fast(uint8_t reg, uint8_t v) {
-    if (opl_register_cache[reg] == v)
+    if (opl_register_states[reg] == v)
         return;
 
-    opl_register_cache[reg] = v;
+    opl_register_states[reg] = v;
     opl_write_asm(reg, v);
 }
 
@@ -105,7 +107,7 @@ static void opl_init() {
     opl_write(0x4, 0x80);
 
     // Read status
-    val1 = inp(opl_base);
+    val1 = inp(OPL_BASE);
 
     // Set timer 1 to 0xff
     opl_write(0x2, 0xff);
@@ -117,7 +119,7 @@ static void opl_init() {
     delay(10);
 
     // Read status
-    val2 = inp(opl_base);
+    val2 = inp(OPL_BASE);
 
     // Reset timer 1 and 2
     opl_write(0x4, 0x60);
@@ -129,7 +131,7 @@ static void opl_init() {
         return;
     }
 
-    val1 = inp(opl_base);
+    val1 = inp(OPL_BASE);
 
     if ((val1 & 0x06) == 0x00) {
         opl = 3;
