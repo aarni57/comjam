@@ -16,7 +16,6 @@
 #endif
 
 #define abs16 abs
-#define abs32 abs
 
 #define swap16(a, b) { int16_t t = a; a = b; b = t; }
 #define swap32(a, b) { int32_t t = a; a = b; b = t; }
@@ -58,15 +57,31 @@ static const char* exit_message = "JEMM unloaded... Not really :-)";
 
 static int quit = 0;
 
-static uint32_t frame_dt = 0;
-
 static struct {
     uint32_t time_accumulator;
     uint32_t frame_accumulator;
     uint32_t average;
 } fps = { 0 };
 
+#define TICK_LENGTH_US (1000000UL / 60)
+
+static struct {
+    uint32_t tick_accumulator;
+    uint32_t current_tick;
+    uint32_t ticks_to_advance;
+} timing = { 0 };
+
 //
+
+static void update_timing(uint32_t dt_us) {
+    timing.ticks_to_advance = 0;
+    timing.tick_accumulator += dt_us;
+    while (timing.tick_accumulator >= TICK_LENGTH_US) {
+        timing.tick_accumulator -= TICK_LENGTH_US;
+        timing.current_tick++;
+        timing.ticks_to_advance++;
+    }
+}
 
 static void update_input() {
     if (kbhit()) {
@@ -86,28 +101,36 @@ static void update_input() {
     }
 }
 
-static fx_t t = 0;
-
 static void update() {
-    t += frame_dt;
 }
 
 static void draw_fps() {
-    char buf[3] = { 0 };
-    uint32_t clamped_average = minu32(fps.average, 99);
-    uint8_t tens = clamped_average / 10;
-    buf[0] = tens ? '0' + tens : ' ';
-    buf[1] = '0' + (clamped_average - tens * 10);
-    draw_text(buf, 320 - 12, 2, 4);
+    char buf[4] = { 0 };
+    uint8_t ones, tens, hundreds;
+    uint16_t v = minu32(fps.average, 999);
+    hundreds = v / 100;
+    v -= hundreds * 100;
+    tens = v / 10;
+    v -= tens * 10;
+    ones = v;
+    buf[0] = hundreds ? '0' + hundreds : ' ';
+    buf[1] = tens ? '0' + tens : ' ';
+    buf[2] = '0' + ones;
+    draw_text(buf, 320 - 16, 4, 4);
 }
 
 static void draw() {
     fx4x3_t view_matrix, model_matrix, mesh_adjust_matrix, tmp, model_view_matrix;
+    fx4_t model_rotation;
+    fx3_t model_rotation_axis = { 0, FX_ONE, 0 };
+    fx3_t model_translation = { 1000, 0, 0 };
 
     fx4x3_identity(&view_matrix);
     view_matrix.m[FX4X3_32] = 2048;
 
-    fx4x3_translation(&model_matrix, 1000, 0, 0);
+    fx_quat_rotation_axis_angle(&model_rotation, &model_rotation_axis, timing.current_tick * 8);
+
+    fx4x3_rotation_translation(&model_matrix, &model_rotation, &model_translation);
 
     fx4x3_identity(&mesh_adjust_matrix);
     mesh_adjust_matrix.m[FX4X3_00] = torus_size.x << 9;
@@ -124,10 +147,10 @@ static void draw() {
         torus_num_indices, torus_num_vertices,
         torus_indices, torus_vertices);
 
-    flush_draw_buffer();
+    flush_mesh_draw_buffer();
 
-    draw_text("Prerendering graphics...", 6, 6, 4);
-    draw_text_cursor(6, 12, 7);
+    draw_text("Prerendering graphics...", 4, 4, 4);
+    draw_text_cursor(4, 10, 7);
 
     draw_fps();
 }
@@ -171,7 +194,7 @@ void main() {
 
     while (!quit) {
         static uint32_t previous_frame_ticks = 0;
-        uint32_t frame_start_ticks, ticks_delta;
+        uint32_t frame_start_ticks, ticks_delta, frame_dt;
 
         _disable();
         frame_start_ticks = timer_ticks;
@@ -190,6 +213,7 @@ void main() {
 
         fps.frame_accumulator++;
 
+        update_timing(frame_dt);
         update_input();
         update();
 

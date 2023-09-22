@@ -139,7 +139,7 @@ static void draw_mesh(const fx4x3_t* model_view_matrix, uint8_t color,
     }
 }
 
-static void flush_draw_buffer() {
+static void flush_mesh_draw_buffer() {
     int16_t x0, y0, x1, y1, x2, y2;
     uint8_t color;
     uint16_t i;
