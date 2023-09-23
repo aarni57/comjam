@@ -11,19 +11,64 @@
 #define NEAR_CLIP 256
 #define FAR_CLIP ((fx_t)1024 * 256)
 
-#define OOZ_BITS 16
-
 static inline void project_to_screen(fx3_t* v) {
-    fx_t ooz = (1L << (RASTER_SUBPIXEL_BITS + OOZ_BITS)) / v->z;
+#if 0
+    fx_t ooz = 0xffffffff / v->z;
 
     v->x *= SCREEN_LOGICAL_HEIGHT;
     v->y *= SCREEN_HEIGHT;
 
-    v->x = (v->x * ooz) >> OOZ_BITS;
-    v->y = (v->y * -ooz) >> OOZ_BITS;
+    v->x = fx_mul(v->x, ooz) >> (16 - RASTER_SUBPIXEL_BITS);
+    v->y = fx_mul(v->y, -ooz) >> (16 - RASTER_SUBPIXEL_BITS);
 
     v->x += RASTER_SCREEN_CENTER_X;
     v->y += RASTER_SCREEN_CENTER_Y;
+#else
+    fx_t x = v->x;
+    fx_t y = v->y;
+    fx_t z = v->z;
+
+    __asm {
+        .386
+        mov ecx, z
+        mov edx, 1
+        xor eax, eax
+        idiv ecx
+        mov ebx, eax
+
+        // x
+        mov eax, x
+        mov ecx, 240
+        imul ecx
+
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+
+        sar edx, 12
+        add edx, 2560
+        mov x, edx
+
+        // y
+        mov eax, y
+        mov ecx, 200
+        imul ecx
+
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+
+        sar edx, 12
+        neg edx
+        add edx, 1600
+        mov y, edx
+    }
+
+    v->x = x;
+    v->y = y;
+#endif
 }
 
 //
@@ -41,7 +86,43 @@ static inline void draw_triangle_lines(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t 
 }
 
 static inline fx_t calc_triangle_area(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x2, fx_t y2) {
-    return (x2 - x0) * (y1 - y0) - (y2 - y0) * (x1 - x0);
+#if 0
+    return imul32(x2 - x0, y1 - y0) - imul32(y2 - y0, x1 - x0);
+#else
+    int32_t a;
+
+    __asm {
+        // a = (x2 - x0) * (y1 - y0)
+        mov eax, x2
+        mov ebx, x0
+        sub eax, ebx
+
+        mov ebx, y1
+        mov ecx, y0
+        sub ebx, ecx
+
+        imul ebx
+        mov a, eax
+
+        // b = (y2 - y0) * (x1 - x0)
+        mov eax, y2
+        mov ebx, y0
+        sub eax, ebx
+
+        mov ebx, x1
+        mov ecx, x0
+        sub ebx, ecx
+
+        imul ebx
+
+        // a - b
+        mov ebx, a
+        sub ebx, eax
+        mov a, ebx
+    }
+
+    return a;
+#endif
 }
 
 //
@@ -49,16 +130,19 @@ static inline fx_t calc_triangle_area(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x
 #define TM_BUFFER_SIZE (512 * 3)
 static fx_t __far* tm_buffer = NULL;
 
-#define MAX_TRIANGLES 512
-static uint16_t num_triangles = 0;
+#define DRAW_BUFFER_MAX_TRIANGLES 512
+static uint16_t draw_buffer_num_triangles = 0;
 static int16_t __far* draw_buffer = NULL;
 static uint32_t __far* sort_buffer = NULL;
 
-static void draw_mesh(const fx4x3_t* model_view_matrix, uint8_t color,
-    uint16_t num_indices, uint16_t num_vertices,
-    const uint8_t* indices, const int8_t* vertices) {
+static void draw_mesh(const fx4x3_t* model_view_matrix,
+    uint16_t num_indices,
+    uint16_t num_vertices,
+    const uint8_t* indices,
+    const uint8_t* face_colors,
+    const int8_t* vertices) {
 
-    if (num_triangles == MAX_TRIANGLES) {
+    if (draw_buffer_num_triangles == DRAW_BUFFER_MAX_TRIANGLES) {
         return;
     }
 
@@ -83,16 +167,18 @@ static void draw_mesh(const fx4x3_t* model_view_matrix, uint8_t color,
     }
 
     {
-        int16_t __far* draw_buffer_tgt = draw_buffer + (num_triangles << 3);
-        uint32_t __far* sort_buffer_tgt = sort_buffer + num_triangles;
+        int16_t __far* draw_buffer_tgt = draw_buffer + (draw_buffer_num_triangles << 3);
+        uint32_t __far* sort_buffer_tgt = sort_buffer + draw_buffer_num_triangles;
         const uint8_t* indices_end = indices + num_indices;
         uint16_t a, b, c;
+        uint8_t face_color;
         fx_t x0, y0, z0, x1, y1, z1, x2, y2, z2;
 
         while (indices < indices_end) {
             a = *indices++;
             b = *indices++;
             c = *indices++;
+            face_color = *face_colors++;
 
             a *= 3;
             z0 = tm_buffer[a + 2];
@@ -125,13 +211,13 @@ static void draw_mesh(const fx4x3_t* model_view_matrix, uint8_t color,
                 *draw_buffer_tgt++ = y1;
                 *draw_buffer_tgt++ = x2;
                 *draw_buffer_tgt++ = y2;
-                *draw_buffer_tgt++ = color;
+                *draw_buffer_tgt++ = face_color;
                 *draw_buffer_tgt++ = 0; // Reserved
 
-                *sort_buffer_tgt++ = ((z0 + z1 + z2) >> 4) | ((uint32_t)num_triangles << 16);
+                *sort_buffer_tgt++ = ((z0 + z1 + z2) >> 4) | ((uint32_t)draw_buffer_num_triangles << 16);
 
-                num_triangles++;
-                if (num_triangles == MAX_TRIANGLES) {
+                draw_buffer_num_triangles++;
+                if (draw_buffer_num_triangles == DRAW_BUFFER_MAX_TRIANGLES) {
                     return;
                 }
             }
@@ -144,9 +230,9 @@ static void flush_mesh_draw_buffer() {
     uint8_t color;
     uint16_t i;
 
-    smoothsort(sort_buffer, num_triangles);
+    smoothsort(sort_buffer, draw_buffer_num_triangles);
 
-    for (i = 0; i < num_triangles; ++i) {
+    for (i = 0; i < draw_buffer_num_triangles; ++i) {
         uint16_t j = sort_buffer[i] >> 16;
         j <<= 3;
 
@@ -158,11 +244,11 @@ static void flush_mesh_draw_buffer() {
         y2 = draw_buffer[j + 5];
         color = draw_buffer[j + 6];
 
-        draw_tri(x0, y0, x1, y1, x2, y2, color);
+        tri(x0, y0, x1, y1, x2, y2, color);
         //draw_triangle_lines(x0, y0, x1, y1, x2, y2, color + 1);
      }
 
-     num_triangles = 0;
+     draw_buffer_num_triangles = 0;
 }
 
 #endif

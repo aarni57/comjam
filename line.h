@@ -42,7 +42,7 @@ static inline void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uin
                         return;
 
                     y++;
-                    AW_ASSERT(y < SCREEN_WIDTH);
+                    aw_assert(y < SCREEN_WIDTH);
                     error2 -= dx << 1;
                 }
             }
@@ -63,7 +63,7 @@ static inline void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uin
                         return;
 
                     y--;
-                    AW_ASSERT(y >= 0);
+                    aw_assert(y >= 0);
                     error2 -= dx << 1;
                 }
             }
@@ -88,7 +88,7 @@ static inline void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uin
                         return;
 
                     y += SCREEN_WIDTH;
-                    AW_ASSERT(y < (int32_t)SCREEN_WIDTH * SCREEN_HEIGHT);
+                    aw_assert(y < (int32_t)SCREEN_WIDTH * SCREEN_HEIGHT);
                     error2 -= dx << 1;
                 }
             }
@@ -108,7 +108,7 @@ static inline void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uin
                         return;
 
                     y -= SCREEN_WIDTH;
-                    AW_ASSERT(y >= 0);
+                    aw_assert(y >= 0);
                     error2 -= dx << 1;
                 }
             }

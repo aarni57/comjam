@@ -10,9 +10,9 @@
 
 #if 0
 #   include <assert.h>
-#   define AW_ASSERT assert
+#   define aw_assert assert
 #else
-#   define AW_ASSERT(x)
+#   define aw_assert(x)
 #endif
 
 #define abs16 abs
@@ -56,6 +56,7 @@ void timer_cleanup();
 static const char* exit_message = "JEMM unloaded... Not really :-)";
 
 static int quit = 0;
+static int vsync = 0;
 
 static struct {
     uint32_t time_accumulator;
@@ -95,6 +96,10 @@ static void update_input() {
                 opl_play();
                 break;
 
+            case 'v':
+                vsync ^= 1;
+                break;
+
             default:
                 break;
         }
@@ -105,30 +110,53 @@ static void update() {
 }
 
 static void draw_fps() {
-    char buf[4] = { 0 };
+    char buf[5] = { 0 };
     uint8_t ones, tens, hundreds;
     uint16_t v = minu32(fps.average, 999);
+
+#if 0
     hundreds = v / 100;
     v -= hundreds * 100;
     tens = v / 10;
     v -= tens * 10;
     ones = v;
-    buf[0] = hundreds ? '0' + hundreds : ' ';
-    buf[1] = tens ? '0' + tens : ' ';
-    buf[2] = '0' + ones;
-    draw_text(buf, 320 - 16, 4, 4);
+#else
+    __asm {
+        .386
+        mov ax, v
+        mov cx, 100
+        xor dx, dx
+        div cx
+        mov hundreds, al
+        mov ax, dx
+        mov cx, 10
+        xor dx, dx
+        div cx
+        mov tens, al
+        mov ones, dl
+    }
+#endif
+
+    buf[0] = vsync ? '*' : ' ';
+    buf[1] = hundreds ? '0' + hundreds : ' ';
+    buf[2] = (hundreds || tens) ? '0' + tens : ' ';
+    buf[3] = '0' + ones;
+    draw_text(buf, 320 - 24, 4, 4);
 }
 
 static void draw() {
     fx4x3_t view_matrix, model_matrix, mesh_adjust_matrix, tmp, model_view_matrix;
     fx4_t model_rotation;
     fx3_t model_rotation_axis = { 0, FX_ONE, 0 };
-    fx3_t model_translation = { 1000, 0, 0 };
+    fx3_t model_translation = { 0 };
+    fx_t model_rotation_angle = timing.current_tick * 64;
+
+    model_translation.x = fx_sin(timing.current_tick * 32) >> 6;
 
     fx4x3_identity(&view_matrix);
     view_matrix.m[FX4X3_32] = 2048;
 
-    fx_quat_rotation_axis_angle(&model_rotation, &model_rotation_axis, timing.current_tick * 8);
+    fx_quat_rotation_axis_angle(&model_rotation, &model_rotation_axis, model_rotation_angle);
 
     fx4x3_rotation_translation(&model_matrix, &model_rotation, &model_translation);
 
@@ -143,9 +171,9 @@ static void draw() {
     fx4x3_mul(&tmp, &model_matrix, &mesh_adjust_matrix);
     fx4x3_mul(&model_view_matrix, &view_matrix, &tmp);
 
-    draw_mesh(&model_view_matrix, 2,
+    draw_mesh(&model_view_matrix,
         torus_num_indices, torus_num_vertices,
-        torus_indices, torus_vertices);
+        torus_indices, torus_face_colors, torus_vertices);
 
     flush_mesh_draw_buffer();
 
@@ -166,12 +194,12 @@ void main() {
         goto exit;
     }
 
-    draw_buffer = (int16_t __far*)_fmalloc(sizeof(int16_t) * 8 * MAX_TRIANGLES);
+    draw_buffer = (int16_t __far*)_fmalloc(sizeof(int16_t) * 8 * DRAW_BUFFER_MAX_TRIANGLES);
     if (!draw_buffer) {
         goto exit;
     }
 
-    sort_buffer = (uint32_t __far*)_fmalloc(sizeof(uint32_t) * MAX_TRIANGLES);
+    sort_buffer = (uint32_t __far*)_fmalloc(sizeof(uint32_t) * DRAW_BUFFER_MAX_TRIANGLES);
     if (!sort_buffer) {
         goto exit;
     }
@@ -202,11 +230,11 @@ void main() {
 
         ticks_delta = frame_start_ticks - previous_frame_ticks;
         previous_frame_ticks = frame_start_ticks;
-        frame_dt = ticks_delta * TIMER_TICK_USEC;
+        frame_dt = mul32(ticks_delta, TIMER_TICK_USEC);
 
         fps.time_accumulator += frame_dt;
         if (fps.time_accumulator >= 1000000) {
-            fps.average = (fps.frame_accumulator * 1000000) / fps.time_accumulator;
+            fps.average = div32(mul32(fps.frame_accumulator, 1000000), fps.time_accumulator);
             fps.time_accumulator = 0;
             fps.frame_accumulator = 0;
         }
@@ -217,10 +245,64 @@ void main() {
         update_input();
         update();
 
+#if 0
         _fmemset(dblbuf, 0, SCREEN_NUM_PIXELS);
+#else
+        __asm {
+            push es
+            push edi
+
+            xor eax, eax
+
+            mov edx, dblbuf
+            movzx edi, dx
+            shr edx, 16
+            mov es, dx
+
+            mov cx, SCREEN_NUM_PIXELS
+            shr cx, 2
+
+            rep stosd
+
+            pop edi
+            pop es
+        }
+#endif
+
         draw();
-        //vga_wait_for_retrace();
+
+        if (vsync)
+            vga_wait_for_retrace();
+
+#if 0
         _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);
+#else
+        __asm {
+            push es
+            push ds
+            push edi
+            push esi
+
+            mov edx, dblbuf
+            movzx esi, dx
+            shr edx, 16
+            mov ds, dx
+
+            mov dx, 0xa000
+            mov es, dx
+            xor edi, edi
+
+            mov cx, SCREEN_NUM_PIXELS
+            shr cx, 2
+
+            rep movsd
+
+            pop esi
+            pop edi
+            pop ds
+            pop es
+        }
+#endif
     }
 
 exit:

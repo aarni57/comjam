@@ -24,9 +24,11 @@
 
 //
 
+#if 0
 static inline fx_t mul_by_raster_block_mask(fx_t x) {
     return (x << 3) - x; // x * RASTER_BLOCK_MASK
 }
+#endif
 
 //
 
@@ -68,35 +70,36 @@ static inline void tri(
     dy2 = y2 - y0;
 
     {
-        fx_t c = dy0 * x0 - dx0 * y0;
+        fx_t c = imul32(dy0, x0) - imul32(dx0, y0);
         if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c++;
 
         dx0 <<= RASTER_SUBPIXEL_BITS;
         dy0 <<= RASTER_SUBPIXEL_BITS;
 
-        c0 = c + dx0 * min_y - dy0 * min_x;
+        c0 = c + imul32(dx0, min_y) - imul32(dy0, min_x);
     }
     {
-        fx_t c = dy1 * x1 - dx1 * y1;
+        fx_t c = imul32(dy1, x1) - imul32(dx1, y1);
         if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c++;
 
         dx1 <<= RASTER_SUBPIXEL_BITS;
         dy1 <<= RASTER_SUBPIXEL_BITS;
 
-        c1 = c + dx1 * min_y - dy1 * min_x;
+        c1 = c + imul32(dx1, min_y) - imul32(dy1, min_x);
     }
     {
-        fx_t c = dy2 * x2 - dx2 * y2;
+        fx_t c = imul32(dy2, x2) - imul32(dx2, y2);
         if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c++;
 
         dx2 <<= RASTER_SUBPIXEL_BITS;
         dy2 <<= RASTER_SUBPIXEL_BITS;
 
-        c2 = c + dx2 * min_y - dy2 * min_x;
+        c2 = c + imul32(dx2, min_y) - imul32(dy2, min_x);
     }
 
     //
 
+#if 0
     co0_10 = mul_by_raster_block_mask(-dy0);
     co0_01 = mul_by_raster_block_mask(dx0);
     co0_11 = mul_by_raster_block_mask(dx0 - dy0);
@@ -106,6 +109,79 @@ static inline void tri(
     co2_10 = mul_by_raster_block_mask(-dy2);
     co2_01 = mul_by_raster_block_mask(dx2);
     co2_11 = mul_by_raster_block_mask(dx2 - dy2);
+#else
+
+    __asm {
+        .386
+
+        // 0
+        mov eax, dy0
+        neg eax
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co0_10, eax
+
+        mov eax, dx0
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co0_01, eax
+
+        mov eax, dx0
+        mov ebx, dy0
+        sub eax, ebx
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co0_11, eax
+
+        // 1
+        mov eax, dy1
+        neg eax
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co1_10, eax
+
+        mov eax, dx1
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co1_01, eax
+
+        mov eax, dx1
+        mov ebx, dy1
+        sub eax, ebx
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co1_11, eax
+
+        // 2
+        mov eax, dy2
+        neg eax
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co2_10, eax
+
+        mov eax, dx2
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co2_01, eax
+
+        mov eax, dx2
+        mov ebx, dy2
+        sub eax, ebx
+        mov ebx, eax
+        sal eax, 3
+        sub eax, ebx
+        mov co2_11, eax
+    }
+
+#endif
 
     //
 
@@ -197,7 +273,7 @@ static inline void tri(
                     rol edx, 16
 
                     vl:
-                    mov di, dx
+                    movzx edi, dx
 
                     movzx cx, bl
                     rep stosd
@@ -224,6 +300,7 @@ static inline void tri(
 
                     uint8_t left = 0;
 
+#if 0
                     while ((cix0 | cix1 | cix2) <= 0) {
                         cix0 -= dy0;
                         cix1 -= dy1;
@@ -234,10 +311,47 @@ static inline void tri(
                             break;
                         }
                     }
+#else
+                    __asm {
+                        .386
+                        mov eax, cix0
+                        mov ebx, cix1
+                        mov ecx, cix2
+
+                        cont:
+                        mov edx, eax
+                        or edx, ebx
+                        or edx, ecx
+                        cmp edx, 0
+                        jg done
+
+                        mov edx, dy0
+                        sub eax, edx
+
+                        mov edx, dy1
+                        sub ebx, edx
+
+                        mov edx, dy2
+                        sub ecx, edx
+
+                        mov dl, left
+                        inc dl
+                        mov left, dl
+                        cmp dl, 8
+                        je done
+
+                        jmp cont
+                        done:
+                        mov cix0, eax
+                        mov cix1, ebx
+                        mov cix2, ecx
+                    }
+#endif
 
                     if (left != RASTER_BLOCK_SIZE) {
                         uint8_t right = left;
 
+#if 0
                         while ((cix0 | cix1 | cix2) > 0) {
                             cix0 -= dy0;
                             cix1 -= dy1;
@@ -248,6 +362,39 @@ static inline void tri(
                                 break;
                             }
                         }
+#else
+                        __asm {
+                            .386
+                            mov eax, cix0
+                            mov ebx, cix1
+                            mov ecx, cix2
+
+                            cont:
+                            mov edx, eax
+                            or edx, ebx
+                            or edx, ecx
+                            cmp edx, 0
+                            jle done
+
+                            mov edx, dy0
+                            sub eax, edx
+
+                            mov edx, dy1
+                            sub ebx, edx
+
+                            mov edx, dy2
+                            sub ecx, edx
+
+                            mov dl, right
+                            inc dl
+                            mov right, dl
+                            cmp dl, 8
+                            je done
+
+                            jmp cont
+                            done:
+                        }
+#endif
 
                         {
 #if 0
@@ -265,7 +412,7 @@ static inline void tri(
                                 add edx, eax
                                 movzx cx, right
                                 sub cx, ax
-                                mov di, dx
+                                movzx edi, dx
                                 shr edx, 16
                                 mov es, dx
                                 mov al, color
@@ -306,6 +453,7 @@ static inline void tri(
     }
 }
 
+#if 0
 #define TRI_SPLITTING_THRESHOLD 0xffff8000
 
 static inline void draw_tri(
@@ -339,5 +487,7 @@ static inline void draw_tri(
 
     tri(x0, y0, x1, y1, x2, y2, c);
 }
+#else
+#endif
 
 #endif

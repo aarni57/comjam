@@ -39,6 +39,7 @@ mesh_bytes = read_binary_file(mesh_path)
 
 num_vertices = read_u16(mesh_bytes, 0)
 num_indices = read_u16(mesh_bytes, 2)
+num_triangles = int(num_indices / 3)
 
 print("num_vertices " + str(num_vertices))
 print("num_indices " + str(num_indices))
@@ -72,6 +73,19 @@ with open(os.path.join(output_path, name + ".h"), "w") as f:
     f.write("const uint8_t " + name + "_indices[] = {\n")
 
     for i in range(num_indices):
+        index = read_u8(mesh_bytes, position)
+        position = position + 1
+        f.write(str(index))
+        if (i + 1) % 16 == 0:
+            f.write(",\n")
+        else:
+            f.write(", ")
+
+    f.write("};\n\n")
+
+    f.write("const uint8_t " + name + "_face_colors[] = {\n")
+
+    for i in range(num_triangles):
         index = read_u8(mesh_bytes, position)
         position = position + 1
         f.write(str(index))

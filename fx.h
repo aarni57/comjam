@@ -5,25 +5,40 @@
 
 //
 
-#define FX_DECIMAL_BITS 16
-#define FX_ONE 65536
-#define FX_DECIMAL_MASK 65535
-#define FX_HALF 32768
+#define FX_DECIMAL_BITS 16L
+#define FX_ONE 65536L
+#define FX_DECIMAL_MASK 65535L
+#define FX_HALF 32768L
 
-#define FX_MIN -2147483648
-#define FX_MAX 2147483647
+#define FX_MIN INT32_MIN
+#define FX_MAX INT32_MAX
 
 #define fx_min min32
 #define fx_max max32
 #define fx_clamp clamp32
 
 static inline fx_t fx_abs(fx_t x) {
+#if 0
     return x < 0 ? -x : x;
+#else
+    __asm {
+        .386
+        mov eax, x
+        cdq
+        xor eax, edx
+        sub eax, edx
+        mov x, eax
+    }
+
+    return x;
+#endif
 }
 
 //
 
 static inline uint32_t clz_u32(uint32_t a) {
+    aw_assert(a != 0);
+#if 0
     uint32_t r = 32;
     if (a >= 0x00010000) { a >>= 16; r -= 16; }
     if (a >= 0x00000100) { a >>=  8; r -=  8; }
@@ -31,11 +46,56 @@ static inline uint32_t clz_u32(uint32_t a) {
     if (a >= 0x00000004) { a >>=  2; r -=  2; }
     r -= a - (a & (a >> 1));
     return r;
+#else
+    __asm {
+        .386
+        mov ecx, a
+        bsr eax, ecx
+        mov ebx, 31
+        sub ebx, eax
+        mov a, ebx
+    }
+
+    return a;
+#endif
 }
 
 //
 
+static inline uint32_t mul32(uint32_t x, uint32_t y) {
+#if 0
+    return x * y;
+#else
+    __asm {
+        .386
+        mov eax, x
+        mov ebx, y
+        mul ebx
+        mov x, eax
+    }
+
+    return x;
+#endif
+}
+
+static inline int32_t imul32(int32_t x, int32_t y) {
+#if 0
+    return x * y;
+#else
+    __asm {
+        .386
+        mov eax, x
+        mov ebx, y
+        imul ebx
+        mov x, eax
+    }
+
+    return x;
+#endif
+}
+
 static inline fx_t fx_mul(fx_t x, fx_t y) {
+#if 0
     int32_t a, c;
     uint32_t b, d;
 
@@ -45,7 +105,21 @@ static inline fx_t fx_mul(fx_t x, fx_t y) {
     c = y >> 16;
     d = y & 0xffff;
 
-    return ((a * c) << 16) + a * d + c * b + ((b * d) >> 16);
+    return ((a * c) << 16) + a * d + b * c + ((b * d) >> 16);
+#else
+    __asm {
+        .386
+        mov eax, x
+        mov ebx, y
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov x, edx
+    }
+
+    return x;
+#endif
 }
 
 #define fx_pow2(x) fx_mul(x, x)
@@ -56,7 +130,25 @@ static inline fx_t fx_lerp(fx_t a, fx_t b, fx_t t) {
 
 //
 
-static inline fx_t fx_div(fx_t a, fx_t b) {
+static inline uint32_t div32(uint32_t x, uint32_t y) {
+#if 0
+    return x / y;
+#else
+    __asm {
+        .386
+        mov eax, x
+        mov ebx, y
+        xor edx, edx
+        div ebx
+        mov x, eax
+    }
+
+    return x;
+#endif
+}
+
+static inline fx_t fx_div(fx_t x, fx_t y) {
+#if 0
     uint32_t remainder, divider, quotient, bit;
     fx_t result;
 
@@ -65,11 +157,11 @@ static inline fx_t fx_div(fx_t a, fx_t b) {
     // trying to compose a 64-bit divide out of 32-bit divisions on
     // platforms without hardware divide.
 
-    if (b == 0)
+    if (y == 0)
         return 0;
 
-    remainder = fx_abs(a);
-    divider = fx_abs(b);
+    remainder = fx_abs(x);
+    divider = fx_abs(y);
 
     quotient = 0;
     bit = 0x10000UL;
@@ -106,11 +198,26 @@ static inline fx_t fx_div(fx_t a, fx_t b) {
     result = quotient;
 
     /* Figure out the sign of result */
-    if ((a ^ b) & 0x80000000UL) {
+    if ((x ^ y) & 0x80000000UL) {
         result = -result;
     }
 
     return result;
+#else
+    __asm {
+        .386
+        mov edx, x
+        xor eax, eax
+        mov ax, dx
+        sar edx, 16
+        sal eax, 16
+        mov ecx, y
+        idiv ecx
+        mov x, eax
+    }
+
+    return x;
+#endif
 }
 
 #define fx_rcp(x) fx_div(FX_ONE, x)
@@ -207,7 +314,7 @@ static inline fx_t fx_sin(fx_t x) {
     y1 = lookup_sin_table(i + 1);
 
     t = (d - (i << (SIN_TABLE_SIZE_SHIFT + 2))) & SIN_TABLE_FX_FRACTION_MASK;
-    return fx_clamp(y0 + (((y1 - y0) * t) >> SIN_TABLE_FX_FRACTION_BITS), -FX_ONE, FX_ONE);
+    return fx_clamp(y0 + (imul32(y1 - y0, t) >> SIN_TABLE_FX_FRACTION_BITS), -FX_ONE, FX_ONE);
 }
 
 static inline fx_t fx_cos(fx_t x) {
@@ -368,7 +475,7 @@ static inline void fx4_normalize_ip(fx4_t* v) {
 //
 
 static inline void fx_quat_rotation_axis_angle(fx4_t* q, const fx3_t* axis, fx_t angle) {
-    fx_t half_angle = angle / 2;
+    fx_t half_angle = angle >> 1;
     fx_t factor = fx_sin(half_angle);
     q->x = fx_mul(axis->x, factor);
     q->y = fx_mul(axis->y, factor);
