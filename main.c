@@ -26,7 +26,7 @@
 #include "minmax.h"
 #include "util.h"
 #include "pal.h"
-#include "torus.h"
+#include "ship.h"
 
 //
 
@@ -146,34 +146,36 @@ static void draw_fps() {
 
 static void draw() {
     fx4x3_t view_matrix, model_matrix, mesh_adjust_matrix, tmp, model_view_matrix;
+    fx4_t view_rotation;
+    fx3_t view_rotation_axis = { FX_ONE, 0, 0 };
+    fx3_t view_translation = { 0, 0, 1024 };
     fx4_t model_rotation;
-    fx3_t model_rotation_axis = { 0, FX_ONE, 0 };
+    fx3_t model_rotation_axis = { 0, 0, FX_ONE };
     fx3_t model_translation = { 0 };
     fx_t model_rotation_angle = timing.current_tick * 64;
 
-    model_translation.x = fx_sin(timing.current_tick * 32) >> 6;
+    fx_quat_rotation_axis_angle(&view_rotation, &view_rotation_axis, -FX_ONE / 4);
+    fx4x3_rotation_translation(&view_matrix, &view_rotation, &view_translation);
 
-    fx4x3_identity(&view_matrix);
-    view_matrix.m[FX4X3_32] = 2048;
+    model_translation.x = fx_sin(timing.current_tick * 32) >> 7;
 
     fx_quat_rotation_axis_angle(&model_rotation, &model_rotation_axis, model_rotation_angle);
-
     fx4x3_rotation_translation(&model_matrix, &model_rotation, &model_translation);
 
     fx4x3_identity(&mesh_adjust_matrix);
-    mesh_adjust_matrix.m[FX4X3_00] = torus_size.x << 9;
-    mesh_adjust_matrix.m[FX4X3_11] = torus_size.y << 9;
-    mesh_adjust_matrix.m[FX4X3_22] = torus_size.z << 9;
-    mesh_adjust_matrix.m[FX4X3_30] = torus_center.x;
-    mesh_adjust_matrix.m[FX4X3_31] = torus_center.y;
-    mesh_adjust_matrix.m[FX4X3_32] = torus_center.z;
+    mesh_adjust_matrix.m[FX4X3_00] = ship_size.x << 9;
+    mesh_adjust_matrix.m[FX4X3_11] = ship_size.y << 9;
+    mesh_adjust_matrix.m[FX4X3_22] = ship_size.z << 9;
+    mesh_adjust_matrix.m[FX4X3_30] = ship_center.x;
+    mesh_adjust_matrix.m[FX4X3_31] = ship_center.y;
+    mesh_adjust_matrix.m[FX4X3_32] = ship_center.z;
 
     fx4x3_mul(&tmp, &model_matrix, &mesh_adjust_matrix);
     fx4x3_mul(&model_view_matrix, &view_matrix, &tmp);
 
     draw_mesh(&model_view_matrix,
-        torus_num_indices, torus_num_vertices,
-        torus_indices, torus_face_colors, torus_vertices);
+        ship_num_indices, ship_num_vertices,
+        ship_indices, ship_face_colors, ship_vertices);
 
     flush_mesh_draw_buffer();
 

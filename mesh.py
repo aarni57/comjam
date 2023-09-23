@@ -8,7 +8,7 @@ import sys
 import subprocess
 import platform
 
-name = "torus"
+name = "ship"
 input_path = "/Users/aarni/Desktop"
 output_path = "/Users/aarni/dev/comjam"
 
@@ -34,7 +34,7 @@ def read_s16(bytes, position):
         i = i - 65536
     return i
 
-mesh_path = os.path.join(input_path, name + ".mesh")
+mesh_path = os.path.join(input_path, name + ".001.mesh")
 mesh_bytes = read_binary_file(mesh_path)
 
 num_vertices = read_u16(mesh_bytes, 0)
@@ -47,9 +47,9 @@ print("num_indices " + str(num_indices))
 aabb_size_x = read_u16(mesh_bytes, 4)
 aabb_size_y = read_u16(mesh_bytes, 6)
 aabb_size_z = read_u16(mesh_bytes, 8)
-aabb_center_x = read_u16(mesh_bytes, 10)
-aabb_center_y = read_u16(mesh_bytes, 12)
-aabb_center_z = read_u16(mesh_bytes, 14)
+aabb_center_x = read_s16(mesh_bytes, 10)
+aabb_center_y = read_s16(mesh_bytes, 12)
+aabb_center_z = read_s16(mesh_bytes, 14)
 
 print("aabb_size_x " + str(aabb_size_x))
 print("aabb_size_y " + str(aabb_size_y))
