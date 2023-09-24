@@ -71,7 +71,7 @@ static void blit_char(int16_t x, int16_t y,
     }
 }
 
-static void draw_text(const char* text, int16_t left, int16_t top,
+static int16_t draw_text(const char* text, int16_t left, int16_t top,
     uint8_t color_start) {
     int16_t x = left;
     int16_t y = top;
@@ -99,6 +99,8 @@ static void draw_text(const char* text, int16_t left, int16_t top,
             }
         }
     }
+
+    return x;
 }
 
 static void draw_text_cursor(int16_t left, int16_t top, uint8_t color) {

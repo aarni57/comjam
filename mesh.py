@@ -8,7 +8,7 @@ import sys
 import subprocess
 import platform
 
-name = "ship"
+names = [ "ship", "asteroid" ]
 input_path = "/Users/aarni/Desktop"
 output_path = "/Users/aarni/dev/comjam"
 
@@ -34,75 +34,85 @@ def read_s16(bytes, position):
         i = i - 65536
     return i
 
-mesh_path = os.path.join(input_path, name + ".001.mesh")
-mesh_bytes = read_binary_file(mesh_path)
+def read_u32(bytes, position):
+    return bytes[position] + (bytes[position + 1] << 8) + (bytes[position + 2] << 16) + (bytes[position + 3] << 24)
 
-num_vertices = read_u16(mesh_bytes, 0)
-num_indices = read_u16(mesh_bytes, 2)
-num_triangles = int(num_indices / 3)
+def read_s32(bytes, position):
+    i = read_u32(bytes, position)
+    if i > (1 << 31):
+        i = i - (1 << 32)
+    return i
 
-print("num_vertices " + str(num_vertices))
-print("num_indices " + str(num_indices))
+for name in names:
+    mesh_path = os.path.join(input_path, name + ".001.mesh")
+    mesh_bytes = read_binary_file(mesh_path)
 
-aabb_size_x = read_u16(mesh_bytes, 4)
-aabb_size_y = read_u16(mesh_bytes, 6)
-aabb_size_z = read_u16(mesh_bytes, 8)
-aabb_center_x = read_s16(mesh_bytes, 10)
-aabb_center_y = read_s16(mesh_bytes, 12)
-aabb_center_z = read_s16(mesh_bytes, 14)
+    num_vertices = read_u16(mesh_bytes, 0)
+    num_indices = read_u16(mesh_bytes, 2)
+    num_triangles = int(num_indices / 3)
 
-print("aabb_size_x " + str(aabb_size_x))
-print("aabb_size_y " + str(aabb_size_y))
-print("aabb_size_z " + str(aabb_size_z))
+    print("num_vertices " + str(num_vertices))
+    print("num_indices " + str(num_indices))
 
-print("aabb_center_x " + str(aabb_center_x))
-print("aabb_center_y " + str(aabb_center_y))
-print("aabb_center_z " + str(aabb_center_z))
+    aabb_size_x = read_u32(mesh_bytes, 4)
+    aabb_size_y = read_u32(mesh_bytes, 8)
+    aabb_size_z = read_u32(mesh_bytes, 12)
+    aabb_center_x = read_s32(mesh_bytes, 16)
+    aabb_center_y = read_s32(mesh_bytes, 20)
+    aabb_center_z = read_s32(mesh_bytes, 24)
 
-position = 16
+    print("aabb_size_x " + str(aabb_size_x))
+    print("aabb_size_y " + str(aabb_size_y))
+    print("aabb_size_z " + str(aabb_size_z))
 
-with open(os.path.join(output_path, name + ".h"), "w") as f:
-    f.write("#include \"fxtypes.h\"\n\n")
+    print("aabb_center_x " + str(aabb_center_x))
+    print("aabb_center_y " + str(aabb_center_y))
+    print("aabb_center_z " + str(aabb_center_z))
 
-    f.write("#define " + name + "_num_vertices " + str(num_vertices) + "\n")
-    f.write("#define " + name + "_num_indices " + str(num_indices) + "\n\n")
+    position = 28
 
-    f.write("const fx3_t " + name + "_center = { " + str(aabb_center_x) + ", " + str(aabb_center_y) + ", " + str(aabb_center_z) + " };\n")
-    f.write("const fx3_t " + name + "_size = { " + str(aabb_size_x) + ", " + str(aabb_size_y) + ", " + str(aabb_size_z) + " };\n\n")
+    with open(os.path.join(output_path, name + ".h"), "w") as f:
+        f.write("#include \"fxtypes.h\"\n\n")
 
-    f.write("const uint8_t " + name + "_indices[] = {\n")
+        f.write("#define " + name + "_num_vertices " + str(num_vertices) + "\n")
+        f.write("#define " + name + "_num_indices " + str(num_indices) + "\n\n")
 
-    for i in range(num_indices):
-        index = read_u8(mesh_bytes, position)
-        position = position + 1
-        f.write(str(index))
-        if (i + 1) % 16 == 0:
-            f.write(",\n")
-        else:
-            f.write(", ")
+        f.write("const fx3_t " + name + "_center = { " + str(aabb_center_x) + ", " + str(aabb_center_y) + ", " + str(aabb_center_z) + " };\n")
+        f.write("const fx3_t " + name + "_size = { " + str(aabb_size_x) + ", " + str(aabb_size_y) + ", " + str(aabb_size_z) + " };\n\n")
 
-    f.write("};\n\n")
+        f.write("const uint16_t " + name + "_indices[] = {\n")
 
-    f.write("const uint8_t " + name + "_face_colors[] = {\n")
+        for i in range(num_indices):
+            index = read_u16(mesh_bytes, position)
+            position = position + 2
+            f.write(str(index))
+            if (i + 1) % 16 == 0:
+                f.write(",\n")
+            else:
+                f.write(", ")
 
-    for i in range(num_triangles):
-        index = read_u8(mesh_bytes, position)
-        position = position + 1
-        f.write(str(index))
-        if (i + 1) % 16 == 0:
-            f.write(",\n")
-        else:
-            f.write(", ")
+        f.write("};\n\n")
 
-    f.write("};\n\n")
+        f.write("const uint8_t " + name + "_face_colors[] = {\n")
 
-    f.write("const int8_t " + name + "_vertices[] = {\n")
+        for i in range(num_triangles):
+            index = read_u8(mesh_bytes, position)
+            position = position + 1
+            f.write(str(index))
+            if (i + 1) % 16 == 0:
+                f.write(",\n")
+            else:
+                f.write(", ")
 
-    for i in range(num_vertices):
-        x = read_s8(mesh_bytes, position + 0)
-        y = read_s8(mesh_bytes, position + 1)
-        z = read_s8(mesh_bytes, position + 2)
-        position = position + 3
-        f.write(str(x) + ", " + str(y) + ", " + str(z) + ",\n")
+        f.write("};\n\n")
 
-    f.write("};\n")
+        f.write("const int8_t " + name + "_vertices[] = {\n")
+
+        for i in range(num_vertices):
+            x = read_s8(mesh_bytes, position + 0)
+            y = read_s8(mesh_bytes, position + 1)
+            z = read_s8(mesh_bytes, position + 2)
+            position = position + 3
+            f.write(str(x) + ", " + str(y) + ", " + str(z) + ",\n")
+
+        f.write("};\n")

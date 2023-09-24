@@ -27,6 +27,7 @@
 #include "util.h"
 #include "pal.h"
 #include "ship.h"
+#include "asteroid.h"
 
 //
 
@@ -37,9 +38,10 @@ static uint8_t __far* dblbuf = NULL;
 
 //
 
+#if 0
 static int opl = 0;
-
 #include "opl.h"
+#endif
 
 //
 
@@ -57,6 +59,8 @@ static const char* exit_message = "JEMM unloaded... Not really :-)";
 
 static int quit = 0;
 static int vsync = 0;
+static int help = 0;
+static int draw_mode = 0;
 
 static struct {
     uint32_t time_accumulator;
@@ -67,14 +71,16 @@ static struct {
 #define TICK_LENGTH_US (1000000UL / 60)
 
 static struct {
+    uint32_t current_frame;
     uint32_t tick_accumulator;
     uint32_t current_tick;
-    uint32_t ticks_to_advance;
+    uint16_t ticks_to_advance;
 } timing = { 0 };
 
 //
 
 static void update_timing(uint32_t dt_us) {
+    timing.current_frame++;
     timing.ticks_to_advance = 0;
     timing.tick_accumulator += dt_us;
     while (timing.tick_accumulator >= TICK_LENGTH_US) {
@@ -92,21 +98,86 @@ static void update_input() {
                 quit = 1;
                 break;
 
+#if 0
             case 'a':
                 opl_play();
                 break;
+#endif
 
             case 'v':
                 vsync ^= 1;
                 break;
 
+            case 'w':
+                draw_mode ^= 1;
+                break;
+
             default:
+                help ^= 1;
                 break;
         }
     }
 }
 
+static inline uint32_t xorshift32() {
+    static uint32_t x = 0xcafebabe;
+    /* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return x;
+}
+
+static inline fx_random_one() {
+    return xorshift32() & (FX_ONE - 1);
+}
+
+static inline fx_random_signed_one() {
+    return (xorshift32() & (FX_ONE * 2 - 1)) - FX_ONE;
+}
+
+#define NUM_ASTEROIDS 16
+static fx3_t asteroid_positions[NUM_ASTEROIDS];
+static fx_t asteroid_speeds[NUM_ASTEROIDS];
+static fx3_t asteroid_rotation_axes[NUM_ASTEROIDS];
+
+static void init_asteroids() {
+    uint16_t i;
+    for (i = 0; i < NUM_ASTEROIDS; ++i) {
+        fx3_t r;
+        r.x = fx_random_signed_one() >> 5;
+        r.y = fx_random_signed_one() >> 5;
+        r.z = fx_random_signed_one() >> 5;
+        asteroid_positions[i] = r;
+
+        asteroid_speeds[i] = (fx_random_one() >> 12) + (FX_ONE >> 12);
+
+        r.x = fx_random_signed_one();
+        r.y = fx_random_signed_one();
+        r.z = fx_random_signed_one();
+        fx3_normalize_ip(&r);
+        asteroid_rotation_axes[i] = r;
+    }
+}
+
+static void update_asteroids() {
+    uint16_t i;
+    for (i = 0; i < NUM_ASTEROIDS; ++i) {
+        asteroid_positions[i].y -= asteroid_speeds[i];
+        if (asteroid_positions[i].y <= -2048) {
+            asteroid_positions[i].y += 4096;
+            asteroid_positions[i].x = fx_random_signed_one() >> 5;
+            asteroid_positions[i].z = fx_random_signed_one() >> 5;
+            asteroid_speeds[i] = (fx_random_one() >> 12) + (FX_ONE >> 12);
+        }
+    }
+}
+
 static void update() {
+    uint16_t i = 0;
+    for (i = 0; i < timing.ticks_to_advance; ++i) {
+        update_asteroids();
+    }
 }
 
 static void draw_fps() {
@@ -144,54 +215,169 @@ static void draw_fps() {
     draw_text(buf, 320 - 24, 4, 4);
 }
 
-static void draw() {
-    fx4x3_t view_matrix, model_matrix, mesh_adjust_matrix, tmp, model_view_matrix;
+const fx3_t AXIS_X = { FX_ONE, 0, 0 };
+const fx3_t AXIS_Y = { 0, FX_ONE, 0 };
+const fx3_t AXIS_Z = { 0, 0, FX_ONE };
+
+static void setup_view_matrix(fx4x3_t* view_matrix) {
+    fx_t rotation_angle_x = fx_sin((fx_t)timing.current_tick * 27) / 10;
+    fx_t rotation_angle_z = FX_HALF + (fx_t)timing.current_tick * 40;
+    fx4_t view_rotation_x;
+    fx4_t view_rotation_z;
     fx4_t view_rotation;
-    fx3_t view_rotation_axis = { FX_ONE, 0, 0 };
-    fx3_t view_translation = { 0, 0, 1024 };
-    fx4_t model_rotation;
-    fx3_t model_rotation_axis = { 0, 0, FX_ONE };
-    fx3_t model_translation = { 0 };
-    fx_t model_rotation_angle = timing.current_tick * 64;
+    fx3_t view_translation = { 0, 0, 1400 };
 
-    fx_quat_rotation_axis_angle(&view_rotation, &view_rotation_axis, -FX_ONE / 4);
-    fx4x3_rotation_translation(&view_matrix, &view_rotation, &view_translation);
+    fx_quat_rotation_axis_angle(&view_rotation_x, &AXIS_X, -FX_ONE / 4 + rotation_angle_x);
+    fx_quat_rotation_axis_angle(&view_rotation_z, &AXIS_Z, rotation_angle_z);
+    fx_quat_mul(&view_rotation, &view_rotation_x, &view_rotation_z);
 
-    model_translation.x = fx_sin(timing.current_tick * 32) >> 7;
+    fx4x3_rotation_translation(view_matrix, &view_rotation, &view_translation);
+}
 
-    fx_quat_rotation_axis_angle(&model_rotation, &model_rotation_axis, model_rotation_angle);
-    fx4x3_rotation_translation(&model_matrix, &model_rotation, &model_translation);
+static fx4x3_t ship_mesh_adjust_matrix;
+static fx4x3_t asteroid_mesh_adjust_matrix;
 
-    fx4x3_identity(&mesh_adjust_matrix);
-    mesh_adjust_matrix.m[FX4X3_00] = ship_size.x << 9;
-    mesh_adjust_matrix.m[FX4X3_11] = ship_size.y << 9;
-    mesh_adjust_matrix.m[FX4X3_22] = ship_size.z << 9;
-    mesh_adjust_matrix.m[FX4X3_30] = ship_center.x;
-    mesh_adjust_matrix.m[FX4X3_31] = ship_center.y;
-    mesh_adjust_matrix.m[FX4X3_32] = ship_center.z;
+static void draw_ship(const fx4x3_t* view_matrix) {
+    fx4x3_t model_matrix, tmp, model_view_matrix;
+    fx3_t model_translation;
+    fx_t t1, t2;
 
-    fx4x3_mul(&tmp, &model_matrix, &mesh_adjust_matrix);
-    fx4x3_mul(&model_view_matrix, &view_matrix, &tmp);
+    t1 = (fx_t)timing.current_tick * 22;
+    t2 = (fx_t)timing.current_tick * 27;
+    model_translation.x = fx_cos(t1) >> 7;
+    model_translation.y = 0;
+    model_translation.z = (fx_sin(t2) >> 8) + 64;
+
+    fx4x3_translation(&model_matrix, &model_translation);
+
+    fx4x3_mul(&tmp, &model_matrix, &ship_mesh_adjust_matrix);
+    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
 
     draw_mesh(&model_view_matrix,
         ship_num_indices, ship_num_vertices,
         ship_indices, ship_face_colors, ship_vertices);
+}
 
-    flush_mesh_draw_buffer();
+static void draw_asteroid(const fx4x3_t* view_matrix, const fx4_t* rotation,
+    const fx3_t* translation) {
+    fx4x3_t model_matrix, tmp, model_view_matrix;
 
-    draw_text("Prerendering graphics...", 4, 4, 4);
-    draw_text_cursor(4, 10, 7);
+    fx4x3_rotation_translation(&model_matrix, rotation, translation);
+
+    fx4x3_mul(&tmp, &model_matrix, &asteroid_mesh_adjust_matrix);
+    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
+
+    draw_mesh(&model_view_matrix,
+        asteroid_num_indices, asteroid_num_vertices,
+        asteroid_indices, asteroid_face_colors, asteroid_vertices);
+}
+
+static void draw_asteroids(const fx4x3_t* view_matrix) {
+    fx4_t rotation;
+    fx_t rotation_angle;
+    uint16_t i;
+    for (i = 0; i < NUM_ASTEROIDS; ++i) {
+        rotation_angle = asteroid_positions[i].y * 80;
+        fx_quat_rotation_axis_angle(&rotation, &asteroid_rotation_axes[i], rotation_angle);
+        draw_asteroid(view_matrix, &rotation, &asteroid_positions[i]);
+    }
+}
+
+static const char* const TEXT = "2669, Gemini sector, Troy system";
+
+static void draw_texts() {
+    char buffer[64];
+    int16_t x;
+    uint8_t i;
+    uint32_t t = timing.current_tick >> 3;
+
+    for (i = 0; i < 64; ++i) {
+        uint32_t t_step;
+
+        if (TEXT[i] == 0)
+            break;
+
+        if (i == 0) {
+            t_step = 10;
+        } else {
+            t_step = TEXT[i] == ' ' ? 2 : 1;
+        }
+
+        if (t < t_step)
+            break;
+
+        t -= t_step;
+
+        buffer[i] = TEXT[i];
+    }
+
+    buffer[i] = 0;
+
+    x = 4;
+    x = draw_text(buffer, x, 200 - (6 + 4), 4);
+    draw_text_cursor(x, 200 - (6 + 4), 7);
+}
+
+static void draw() {
+    fx4x3_t view_matrix;
+    setup_view_matrix(&view_matrix);
+
+    draw_ship(&view_matrix);
+    draw_asteroids(&view_matrix);
+
+    flush_mesh_draw_buffer(draw_mode);
+
+    if (help) {
+        int16_t y = 4;
+        draw_text("build 2023-09-24", 4, y, 4); y += 12;
+        draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
+        draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
+        draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
+        draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
+        draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;
+        draw_text("https://aarnig.itch.io/dos-com-jam", 4, y, 4); y += 6;
+        draw_text("aarni.gratseff@gmail.com", 4, y, 4); y += 6;
+    } else {
+        draw_texts();
+    }
 
     draw_fps();
 }
 
 void main() {
+    aw_assert(ship_num_indices % 3 == 0);
+    aw_assert(sizeof(ship_vertices) == ship_num_vertices * 3);
+    aw_assert(sizeof(ship_indices) == ship_num_indices * sizeof(uint16_t));
+    aw_assert(sizeof(ship_face_colors) == ship_num_indices / 3);
+
+    //
+
+    fx4x3_identity(&ship_mesh_adjust_matrix);
+    ship_mesh_adjust_matrix.m[FX4X3_00] = ship_size.x << 1;
+    ship_mesh_adjust_matrix.m[FX4X3_11] = ship_size.y << 1;
+    ship_mesh_adjust_matrix.m[FX4X3_22] = ship_size.z << 1;
+    ship_mesh_adjust_matrix.m[FX4X3_30] = ship_center.x >> 7;
+    ship_mesh_adjust_matrix.m[FX4X3_31] = ship_center.y >> 7;
+    ship_mesh_adjust_matrix.m[FX4X3_32] = ship_center.z >> 7;
+
+    fx4x3_identity(&asteroid_mesh_adjust_matrix);
+    asteroid_mesh_adjust_matrix.m[FX4X3_00] = asteroid_size.x << 1;
+    asteroid_mesh_adjust_matrix.m[FX4X3_11] = asteroid_size.y << 1;
+    asteroid_mesh_adjust_matrix.m[FX4X3_22] = asteroid_size.z << 1;
+    asteroid_mesh_adjust_matrix.m[FX4X3_30] = asteroid_center.x >> 7;
+    asteroid_mesh_adjust_matrix.m[FX4X3_31] = asteroid_center.y >> 7;
+    asteroid_mesh_adjust_matrix.m[FX4X3_32] = asteroid_center.z >> 7;
+
+    init_asteroids();
+
+    //
+
     dblbuf = (uint8_t __far*)_fmalloc(SCREEN_NUM_PIXELS);
     if (!dblbuf) {
         goto exit;
     }
 
-    tm_buffer = (fx_t __far*)_fmalloc(sizeof(fx_t) * TM_BUFFER_SIZE);
+    tm_buffer = (int16_t __far*)_fmalloc(sizeof(int16_t) * TM_BUFFER_SIZE);
     if (!tm_buffer) {
         goto exit;
     }
@@ -206,7 +392,10 @@ void main() {
         goto exit;
     }
 
+#if 0
     opl_init();
+#endif
+
     timer_init();
 
     vga_set_mode(0x13);
@@ -313,7 +502,9 @@ exit:
     _ffree(draw_buffer);
     _ffree(sort_buffer);
     timer_cleanup();
+#if 0
     opl_done();
+#endif
     vga_set_mode(0x3);
     putz(exit_message);
     set_text_cursor(1, 0);

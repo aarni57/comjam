@@ -22,7 +22,7 @@
 #define AW_SORT_SWAP(a, b) swap32(indices[a], indices[b])
 
 // Define the Leonardo numbers
-static inline int16_t leonardo(int16_t k) {
+static inline int32_t leonardo(int32_t k) {
     if (k < 2) {
         return 1;
     }
@@ -32,10 +32,10 @@ static inline int16_t leonardo(int16_t k) {
 
 // Build the Leonardo heap by merging
 // pairs of adjacent trees
-static inline void heapify(uint32_t __far* indices, int16_t start, int16_t end) {
-    int16_t i = start;
-    int16_t j = 0;
-    int16_t k = 0;
+static inline void heapify(uint32_t __far* indices, int32_t start, int32_t end) {
+    int32_t i = start;
+    int32_t j = 0;
+    int32_t k = 0;
 
     while (k < end - start + 1) {
         if (k & 0xAAAAAAAA) {
@@ -66,7 +66,7 @@ static inline void heapify(uint32_t __far* indices, int16_t start, int16_t end) 
 }
 
 static inline void smoothsort(uint32_t __far* indices, uint16_t n) {
-    int16_t p, q, r;
+    int32_t p, q, r;
     uint16_t i;
 
     if (n == 0) {
