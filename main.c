@@ -61,6 +61,11 @@ static int quit = 0;
 static int vsync = 0;
 static int help = 0;
 static int draw_mode = 0;
+static int stars_enabled = 1;
+static int asteroids_enabled = 1;
+static int ship_enabled = 1;
+static int texts_enabled = 1;
+static int fps_enabled = 1;
 
 static struct {
     uint32_t time_accumulator;
@@ -103,6 +108,26 @@ static void update_input() {
                 opl_play();
                 break;
 #endif
+
+            case '1':
+                stars_enabled ^= 1;
+                break;
+
+            case '2':
+                asteroids_enabled ^= 1;
+                break;
+
+            case '3':
+                ship_enabled ^= 1;
+                break;
+
+            case '4':
+                texts_enabled ^= 1;
+                break;
+
+            case '5':
+                fps_enabled ^= 1;
+                break;
 
             case 'v':
                 vsync ^= 1;
@@ -234,6 +259,89 @@ static void setup_view_matrix(fx4x3_t* view_matrix) {
     fx4x3_rotation_translation(view_matrix, &view_rotation, &view_translation);
 }
 
+#define NUM_STARS 128
+static fx3_t star_positions[NUM_STARS];
+
+static void init_stars() {
+    uint16_t i;
+    for (i = 0; i < NUM_STARS; ++i) {
+        fx3_t v;
+        v.x = fx_random_signed_one();
+        v.y = fx_random_signed_one();
+        v.z = fx_random_signed_one();
+        fx3_normalize_ip(&v);
+        star_positions[i] = v;
+    }
+}
+
+static void draw_stars(const fx4x3_t* view_matrix) {
+    int16_t x, y;
+    uint16_t i, offset;
+    fx3_t v;
+
+    for (i = 0; i < NUM_STARS; ++i) {
+        fx_transform_vector(&v, view_matrix, &star_positions[i]);
+
+        if (v.z < NEAR_CLIP)
+            continue;
+
+        project_to_screen(&v);
+
+        v.x >>= RASTER_SUBPIXEL_BITS;
+        v.y >>= RASTER_SUBPIXEL_BITS;
+
+        switch (i & 7) {
+            case 0:
+            case 1: {
+                if (v.x >= 0 && v.x < SCREEN_WIDTH && v.y >= 0 && v.y < SCREEN_HEIGHT) {
+                    offset = mul_by_screen_stride(v.y) + v.x;
+                    dblbuf[offset] = 96;
+                }
+
+                break;
+            }
+
+            case 2:
+            case 3:
+            case 4: {
+                if (v.x >= 0 && v.x < SCREEN_WIDTH && v.y >= 0 && v.y < SCREEN_HEIGHT) {
+                    offset = mul_by_screen_stride(v.y) + v.x;
+                    dblbuf[offset] = 9;
+                }
+
+                break;
+            }
+
+            case 5:
+            case 6: {
+                if (v.x >= 1 && v.x < SCREEN_WIDTH - 1 && v.y >= 1 && v.y < SCREEN_HEIGHT - 1) {
+                    offset = mul_by_screen_stride(v.y) + v.x;
+                    dblbuf[offset - SCREEN_WIDTH] = 8;
+                    dblbuf[offset - 1] = 8;
+                    dblbuf[offset] = 117;
+                    dblbuf[offset + 1] = 8;
+                    dblbuf[offset + SCREEN_WIDTH] = 8;
+                }
+
+                break;
+            }
+
+            case 7: {
+                if (v.x >= 1 && v.x < SCREEN_WIDTH - 1 && v.y >= 1 && v.y < SCREEN_HEIGHT - 1) {
+                    offset = mul_by_screen_stride(v.y) + v.x;
+                    dblbuf[offset - SCREEN_WIDTH] = 9;
+                    dblbuf[offset - 1] = 9;
+                    dblbuf[offset] = 105;
+                    dblbuf[offset + 1] = 9;
+                    dblbuf[offset + SCREEN_WIDTH] = 9;
+                }
+
+                break;
+            }
+        }
+    }
+}
+
 static fx4x3_t ship_mesh_adjust_matrix;
 static fx4x3_t asteroid_mesh_adjust_matrix;
 
@@ -322,26 +430,36 @@ static void draw() {
     fx4x3_t view_matrix;
     setup_view_matrix(&view_matrix);
 
-    draw_ship(&view_matrix);
-    draw_asteroids(&view_matrix);
+    if (stars_enabled)
+        draw_stars(&view_matrix);
+
+    if (ship_enabled)
+        draw_ship(&view_matrix);
+
+    if (asteroids_enabled)
+        draw_asteroids(&view_matrix);
 
     flush_mesh_draw_buffer(draw_mode);
 
-    if (help) {
-        int16_t y = 4;
-        draw_text("build 2023-09-24", 4, y, 4); y += 12;
-        draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
-        draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
-        draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
-        draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
-        draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;
-        draw_text("https://aarnig.itch.io/dos-com-jam", 4, y, 4); y += 6;
-        draw_text("aarni.gratseff@gmail.com", 4, y, 4); y += 6;
-    } else {
-        draw_texts();
+    if (texts_enabled) {
+        if (help) {
+            int16_t y = 4;
+            draw_text("build 2023-09-25", 4, y, 4); y += 12;
+            draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
+            draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
+            draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
+            draw_text("1-5: Toggle rendering (stars, asteroids, ship, texts, fps)", 4, y, 4); y += 6;
+            draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
+            draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;
+            draw_text("https://aarnig.itch.io/dos-com-jam", 4, y, 4); y += 6;
+            draw_text("aarni.gratseff@gmail.com", 4, y, 4); y += 6;
+        } else {
+            draw_texts();
+        }
     }
 
-    draw_fps();
+    if (fps_enabled)
+        draw_fps();
 }
 
 void main() {
@@ -368,6 +486,7 @@ void main() {
     asteroid_mesh_adjust_matrix.m[FX4X3_31] = asteroid_center.y >> 7;
     asteroid_mesh_adjust_matrix.m[FX4X3_32] = asteroid_center.z >> 7;
 
+    init_stars();
     init_asteroids();
 
     //
