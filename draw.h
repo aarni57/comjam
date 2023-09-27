@@ -8,7 +8,7 @@
 
 //
 
-#define NEAR_CLIP 256
+#define NEAR_CLIP 32
 
 static inline void project_to_screen(fx3_t* v) {
 #if 0
@@ -29,24 +29,22 @@ static inline void project_to_screen(fx3_t* v) {
     v->x += RASTER_SCREEN_CENTER_X;
     v->y += RASTER_SCREEN_CENTER_Y;
 #else
-    fx_t x = v->x;
-    fx_t y = v->y;
-    fx_t z = v->z;
-
-    if (z < NEAR_CLIP) {
+    if (v->z < NEAR_CLIP) {
         return;
     }
 
     __asm {
         .386
-        mov ecx, z
+        mov si, v
+
+        mov ecx, 8[si]
         mov edx, 1
         xor eax, eax
         idiv ecx
         mov ebx, eax
 
         // x
-        mov eax, x
+        mov eax, [si]
         mov ecx, 240
         imul ecx
 
@@ -57,10 +55,10 @@ static inline void project_to_screen(fx3_t* v) {
 
         sar edx, 12
         add edx, 2560
-        mov x, edx
+        mov [si], edx
 
         // y
-        mov eax, y
+        mov eax, 4[si]
         mov ecx, 200
         imul ecx
 
@@ -72,11 +70,8 @@ static inline void project_to_screen(fx3_t* v) {
         sar edx, 12
         neg edx
         add edx, 1600
-        mov y, edx
+        mov 4[si], edx
     }
-
-    v->x = x;
-    v->y = y;
 #endif
 }
 
@@ -94,7 +89,7 @@ static inline void draw_triangle_lines(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t 
     draw_line(x2, y2, x0, y0, c);
 }
 
-static inline fx_t calc_triangle_area(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x2, fx_t y2) {
+static inline int32_t calc_triangle_area(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
 #if 0
     return imul32(x2 - x0, y1 - y0) - imul32(y2 - y0, x1 - x0);
 #else
@@ -102,24 +97,24 @@ static inline fx_t calc_triangle_area(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x
 
     __asm {
         // a = (x2 - x0) * (y1 - y0)
-        mov eax, x2
-        mov ebx, x0
+        movsx eax, x2
+        movsx ebx, x0
         sub eax, ebx
 
-        mov ebx, y1
-        mov ecx, y0
+        movsx ebx, y1
+        movsx ecx, y0
         sub ebx, ecx
 
         imul ebx
         mov a, eax
 
         // b = (y2 - y0) * (x1 - x0)
-        mov eax, y2
-        mov ebx, y0
+        movsx eax, y2
+        movsx ebx, y0
         sub eax, ebx
 
-        mov ebx, x1
-        mov ecx, x0
+        movsx ebx, x1
+        movsx ecx, x0
         sub ebx, ecx
 
         imul ebx
@@ -161,12 +156,12 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
         int16_t __far* tm_iter = tm_buffer;
 
         while (vertices < vertices_end) {
-            fx3_t p, v;
-            p.x = *vertices++;
-            p.y = *vertices++;
-            p.z = *vertices++;
+            fx3_t v;
+            v.x = *vertices++;
+            v.y = *vertices++;
+            v.z = *vertices++;
 
-            fx_transform_point(&v, model_view_matrix, &p);
+            fx_transform_point_ip(model_view_matrix, &v);
 
             project_to_screen(&v);
             *tm_iter++ = fx_clamp(v.x, INT16_MIN, INT16_MAX);
@@ -177,7 +172,7 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
 
     {
         int16_t __far* draw_buffer_tgt = draw_buffer + (draw_buffer_num_triangles << 3);
-        uint32_t __far* sort_buffer_tgt = sort_buffer + draw_buffer_num_triangles;
+        uint16_t __far* sort_buffer_tgt = (uint16_t __far*)(sort_buffer + draw_buffer_num_triangles);
         const uint16_t* indices_end = indices + num_indices;
         uint16_t a, b, c;
         uint8_t face_color;
@@ -226,7 +221,9 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
                 draw_buffer_tgt[6] = face_color;
                 draw_buffer_tgt += 8;
 
-                *sort_buffer_tgt++ = z_value | ((uint32_t)draw_buffer_num_triangles << 16);
+                sort_buffer_tgt[0] = z_value;
+                sort_buffer_tgt[1] = draw_buffer_num_triangles;
+                sort_buffer_tgt += 2;
 
                 draw_buffer_num_triangles++;
             }

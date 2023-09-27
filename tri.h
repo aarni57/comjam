@@ -19,17 +19,13 @@
 #define RASTER_SUBPIXEL_MASK (RASTER_SUBPIXEL_ONE - 1)
 #define RASTER_SUBPIXEL_HALF (RASTER_SUBPIXEL_ONE >> 1)
 
-#define RASTER_SCREEN_CENTER_X ((fx_t)SCREEN_CENTER_X << RASTER_SUBPIXEL_BITS)
-#define RASTER_SCREEN_CENTER_Y ((fx_t)SCREEN_CENTER_Y << RASTER_SUBPIXEL_BITS)
-
 //
 
 static inline void tri(
-    fx_t x0, fx_t y0,
-    fx_t x1, fx_t y1,
-    fx_t x2, fx_t y2,
-    uint8_t color)
-{
+    int16_t x0, int16_t y0,
+    int16_t x1, int16_t y1,
+    int16_t x2, int16_t y2,
+    uint8_t color) {
     uint16_t min_x, min_y, max_x, max_y;
     fx_t dx0, dx1, dx2;
     fx_t dy0, dy1, dy2;
@@ -39,19 +35,19 @@ static inline void tri(
     uint8_t __far* screen_row;
     uint8_t __far* screen_row_end;
 
-    max_x = clamp16((fx_max(x0, fx_max(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX);
+    max_x = clamp16((max16(x0, max16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX);
     if (max_x == 0)
         return;
 
-    max_y = clamp16((fx_max(y0, fx_max(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX);
+    max_y = clamp16((max16(y0, max16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX);
     if (max_y == 0)
         return;
 
-    min_x = clamp16((fx_min(x0, fx_min(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
+    min_x = clamp16((min16(x0, min16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
     if (min_x == max_x)
         return;
 
-    min_y = clamp16((fx_min(y0, fx_min(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
+    min_y = clamp16((min16(y0, min16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
     if (min_y == max_y)
         return;
 
@@ -112,11 +108,14 @@ static inline void tri(
     screen_row_end = dblbuf + mul_by_screen_stride(max_y);
 
     while (screen_row < screen_row_end) {
-        fx_t cx0 = c0;
-        fx_t cx1 = c1;
-        fx_t cx2 = c2;
-
         uint16_t x = min_x;
+        fx_t cx0, cx1, cx2;
+
+        cx0 = c0;
+        cx1 = c1;
+        cx2 = c2;
+
+#if 1
         while (!((cx0 + eo0) > 0 &&
                  (cx1 + eo1) > 0 &&
                  (cx2 + eo2) > 0)) {
@@ -127,6 +126,58 @@ static inline void tri(
             if (x >= max_x)
                 break;
         }
+#else
+        // TODO: Not working
+        __asm {
+            sal dy0, 3
+            sal dy1, 3
+            sal dy2, 3
+
+            mov dx, max_x
+
+            contblock:
+            mov eax, cx0
+            mov ebx, eo0
+            add eax, ebx
+            cmp eax, 0
+            jg doneblock
+
+            mov eax, cx1
+            mov ebx, eo1
+            add eax, ebx
+            cmp eax, 0
+            jg doneblock
+
+            mov eax, cx2
+            mov ebx, eo2
+            add eax, ebx
+            cmp eax, 0
+            jg doneblock
+
+            mov eax, cx0
+            sub eax, dy0
+            mov cx0, eax
+
+            mov eax, cx1
+            sub eax, dy1
+            mov cx1, eax
+
+            mov eax, cx2
+            sub eax, dy2
+            mov cx2, eax
+
+            mov ax, x
+            add ax, 8
+            mov x, ax
+            cmp ax, dx
+            jb contblock
+
+            doneblock:
+            sar dy0, 3
+            sar dy1, 3
+            sar dy2, 3
+        }
+#endif
 
         while (x < max_x) {
             uint8_t __far* screen_block = screen_row + x;

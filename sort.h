@@ -1,7 +1,6 @@
 
 // AW library
 // Aarni Gratseff (aarni.gratseff@gmail.com)
-// Sorting
 
 #ifndef AW_SORT_H
 #define AW_SORT_H

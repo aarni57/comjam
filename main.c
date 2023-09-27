@@ -97,64 +97,69 @@ static struct {
 
 //
 
-#define XORSHIFT_STATE_INITIAL_VALUE 0xcafebabe
-static uint32_t xorshift_state = XORSHIFT_STATE_INITIAL_VALUE;
+#if 0
+#define XORSHIFT32_INITIAL_VALUE 0xcafebabe
+static uint32_t xorshift32_state = XORSHIFT32_INITIAL_VALUE;
 
 static inline uint32_t xorshift32() {
     /* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
-#if 0
-    xorshift_state ^= xorshift_state << 13;
-    xorshift_state ^= xorshift_state >> 17;
-    xorshift_state ^= xorshift_state << 5;
-#else
-    __asm {
-        .386
-        mov eax, xorshift_state
-        mov ebx, eax
-        shl ebx, 13
-        xor eax, ebx
-        mov ebx, eax
-        shr ebx, 17
-        xor eax, ebx
-        mov ebx, eax
-        shl ebx, 5
-        xor eax, ebx
-        mov xorshift_state, eax
-    }
-#endif
-
-    return xorshift_state;
+    xorshift32_state ^= xorshift32_state << 13;
+    xorshift32_state ^= xorshift32_state >> 17;
+    xorshift32_state ^= xorshift32_state << 5;
+    return xorshift32_state;
 }
 
-static inline fx_random_one() {
+static inline void xorshift32_reset() {
+    xorshift32_state = XORSHIFT32_INITIAL_VALUE;
+}
+#else
+uint32_t xorshift32();
+void xorshift32_reset();
+#endif
+
+#if 0
+static inline fx_t fx_random_one() {
     return xorshift32() & (FX_ONE - 1);
 }
 
-static inline fx_random_signed_one() {
+static inline fx_t fx_random_signed_one() {
     return (xorshift32() & (FX_ONE * 2 - 1)) - FX_ONE;
 }
 
+static inline fx_t random_debris_x() {
+    return fx_random_signed_one() >> 5;
+}
+#else
+fx_t fx_random_one();
+fx_t fx_random_signed_one();
+fx_t random_debris_x();
+#endif
+
 #define NUM_DEBRIS 16
 static fx3_t debris_positions[NUM_DEBRIS];
-static fx_t debris_speeds[NUM_DEBRIS];
 static fx3_t debris_rotation_axes[NUM_DEBRIS];
+static fx_t debris_speeds[NUM_DEBRIS];
+
+static inline void randomize_debris_properties(uint16_t i) {
+    fx3_t r;
+    r.x = fx_random_signed_one();
+    r.y = fx_random_signed_one();
+    r.z = fx_random_signed_one();
+    fx3_normalize_ip(&r);
+    debris_rotation_axes[i] = r;
+
+    debris_speeds[i] = (fx_random_one() >> 12) + (FX_ONE >> 12);
+}
 
 static void init_debris() {
     uint16_t i;
     for (i = 0; i < NUM_DEBRIS; ++i) {
         fx3_t r;
-        r.x = fx_random_signed_one() >> 5;
-        r.y = fx_random_signed_one() >> 5;
-        r.z = fx_random_signed_one() >> 5;
+        r.x = random_debris_x();
+        r.y = random_debris_x();
+        r.z = random_debris_x();
         debris_positions[i] = r;
-
-        debris_speeds[i] = (fx_random_one() >> 12) + (FX_ONE >> 12);
-
-        r.x = fx_random_signed_one();
-        r.y = fx_random_signed_one();
-        r.z = fx_random_signed_one();
-        fx3_normalize_ip(&r);
-        debris_rotation_axes[i] = r;
+        randomize_debris_properties(i);
     }
 }
 
@@ -164,7 +169,7 @@ void restart() {
     timing.current_tick = 0;
     timing.ticks_to_advance = 0;
 
-    xorshift_state = XORSHIFT_STATE_INITIAL_VALUE;
+    xorshift32_reset();
     init_debris();
 }
 
@@ -275,9 +280,9 @@ static void update_debris() {
         debris_positions[i].y -= debris_speeds[i];
         if (debris_positions[i].y <= -2048) {
             debris_positions[i].y += 4096;
-            debris_positions[i].x = fx_random_signed_one() >> 5;
-            debris_positions[i].z = fx_random_signed_one() >> 5;
-            debris_speeds[i] = (fx_random_one() >> 12) + (FX_ONE >> 12);
+            debris_positions[i].x = random_debris_x();
+            debris_positions[i].z = random_debris_x();
+            randomize_debris_properties(i);
         }
     }
 }
@@ -412,14 +417,14 @@ static void init_stars() {
 static void draw_stars(const fx4x3_t* view_matrix) {
     int16_t x, y;
     uint16_t i;
-    fx3_t v, p;
+    fx3_t v;
     int8_t* p_iter = star_positions;
 
     for (i = 0; i < NUM_STARS; ++i) {
-        p.x = (*p_iter++) << 9;
-        p.y = (*p_iter++) << 9;
-        p.z = (*p_iter++) << 9;
-        fx_transform_vector(&v, view_matrix, &p);
+        v.x = (*p_iter++) << 9;
+        v.y = (*p_iter++) << 9;
+        v.z = (*p_iter++) << 9;
+        fx_transform_vector_ip(view_matrix, &v);
 
         if (v.z < NEAR_CLIP)
             continue;
@@ -630,7 +635,7 @@ static void draw() {
         if (texts_enabled) {
             if (help) {
                 int16_t y = 4;
-                draw_text("build 2023-09-25", 4, y, 4); y += 12;
+                draw_text("build 2023-09-27", 4, y, 4); y += 12;
                 draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
                 draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
                 draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
@@ -656,6 +661,8 @@ static void draw() {
         }
     }
 }
+
+void asm_ptr_test(uint32_t __far* ptr);
 
 void main() {
     aw_assert(ship_num_indices % 3 == 0);

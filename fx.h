@@ -567,24 +567,21 @@ static inline void fx4x3_rotation_translation(fx4x3_t* m, const fx4_t* q,
     m->m[FX4X3_32] = translation->z;
 }
 
-static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v) {
+static inline void fx_transform_point_ip(const fx4x3_t* m, fx3_t* v) {
+    int32_t x, y, z;
 #if 0
-    r->x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]) + m->m[FX4X3_30];
-    r->y = fx_mul(v->x, m->m[FX4X3_10]) + fx_mul(v->y, m->m[FX4X3_11]) + fx_mul(v->z, m->m[FX4X3_12]) + m->m[FX4X3_31];
-    r->z = fx_mul(v->x, m->m[FX4X3_20]) + fx_mul(v->y, m->m[FX4X3_21]) + fx_mul(v->z, m->m[FX4X3_22]) + m->m[FX4X3_32];
+    x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]) + m->m[FX4X3_30];
+    y = fx_mul(v->x, m->m[FX4X3_10]) + fx_mul(v->y, m->m[FX4X3_11]) + fx_mul(v->z, m->m[FX4X3_12]) + m->m[FX4X3_31];
+    z = fx_mul(v->x, m->m[FX4X3_20]) + fx_mul(v->y, m->m[FX4X3_21]) + fx_mul(v->z, m->m[FX4X3_22]) + m->m[FX4X3_32];
 #else
-    int32_t x, y, z, w, m0, m1, m2;
-
-    w = v->x;
-    m0 = m->m[FX4X3_00];
-    m1 = m->m[FX4X3_10];
-    m2 = m->m[FX4X3_20];
-
     __asm {
         .386
-        mov eax, w
+        mov si, v
+        mov di, m
+
+        mov eax, [si]
         mov ecx, eax
-        mov ebx, m0
+        mov ebx, [di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -592,7 +589,7 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov x, edx
 
         mov eax, ecx
-        mov ebx, m1
+        mov ebx, 12[di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -600,24 +597,18 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov y, edx
 
         mov eax, ecx
-        mov ebx, m2
+        mov ebx, 24[di]
         imul ebx
         sar eax, 16
         sal edx, 16
         mov dx, ax
         mov z, edx
-    }
 
-    w = v->y;
-    m0 = m->m[FX4X3_01];
-    m1 = m->m[FX4X3_11];
-    m2 = m->m[FX4X3_21];
+        //
 
-    __asm {
-        .386
-        mov eax, w
+        mov eax, 4[si]
         mov ecx, eax
-        mov ebx, m0
+        mov ebx, 4[di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -627,7 +618,7 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov x, eax
 
         mov eax, ecx
-        mov ebx, m1
+        mov ebx, 16[di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -637,7 +628,7 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov y, eax
 
         mov eax, ecx
-        mov ebx, m2
+        mov ebx, 28[di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -645,18 +636,12 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov eax, z
         add eax, edx
         mov z, eax
-    }
 
-    w = v->z;
-    m0 = m->m[FX4X3_02];
-    m1 = m->m[FX4X3_12];
-    m2 = m->m[FX4X3_22];
+        //
 
-    __asm {
-        .386
-        mov eax, w
+        mov eax, 8[si]
         mov ecx, eax
-        mov ebx, m0
+        mov ebx, 8[di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -666,7 +651,7 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov x, eax
 
         mov eax, ecx
-        mov ebx, m1
+        mov ebx, 20[di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -676,7 +661,7 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov y, eax
 
         mov eax, ecx
-        mov ebx, m2
+        mov ebx, 32[di]
         imul ebx
         sar eax, 16
         sal edx, 16
@@ -684,159 +669,147 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
         mov eax, z
         add eax, edx
         mov z, eax
-    }
 
-    m0 = m->m[FX4X3_30];
-    m1 = m->m[FX4X3_31];
-    m2 = m->m[FX4X3_32];
+        //
 
-    __asm {
-        .386
         mov eax, x
-        mov edx, m0
+        mov edx, 36[di]
         add eax, edx
         mov x, eax
 
         mov eax, y
-        mov edx, m1
+        mov edx, 40[di]
         add eax, edx
         mov y, eax
 
         mov eax, z
-        mov edx, m2
+        mov edx, 44[di]
         add eax, edx
         mov z, eax
     }
-
-    r->x = x;
-    r->y = y;
-    r->z = z;
 #endif
+    v->x = x;
+    v->y = y;
+    v->z = z;
+}
+
+static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v) {
+    *r = *v;
+    fx_transform_point_ip(m, r);
+}
+
+static inline void fx_transform_vector_ip(const fx4x3_t* m, fx3_t* v) {
+    int32_t x, y, z;
+#if 0
+    x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]);
+    y = fx_mul(v->x, m->m[FX4X3_10]) + fx_mul(v->y, m->m[FX4X3_11]) + fx_mul(v->z, m->m[FX4X3_12]);
+    z = fx_mul(v->x, m->m[FX4X3_20]) + fx_mul(v->y, m->m[FX4X3_21]) + fx_mul(v->z, m->m[FX4X3_22]);
+#else
+    __asm {
+        .386
+        mov si, v
+        mov di, m
+
+        mov eax, [si]
+        mov ecx, eax
+        mov ebx, [di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov x, edx
+
+        mov eax, ecx
+        mov ebx, 12[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov y, edx
+
+        mov eax, ecx
+        mov ebx, 24[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov z, edx
+
+        //
+
+        mov eax, 4[si]
+        mov ecx, eax
+        mov ebx, 4[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov eax, x
+        add eax, edx
+        mov x, eax
+
+        mov eax, ecx
+        mov ebx, 16[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov eax, y
+        add eax, edx
+        mov y, eax
+
+        mov eax, ecx
+        mov ebx, 28[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov eax, z
+        add eax, edx
+        mov z, eax
+
+        //
+
+        mov eax, 8[si]
+        mov ecx, eax
+        mov ebx, 8[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov eax, x
+        add eax, edx
+        mov x, eax
+
+        mov eax, ecx
+        mov ebx, 20[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov eax, y
+        add eax, edx
+        mov y, eax
+
+        mov eax, ecx
+        mov ebx, 32[di]
+        imul ebx
+        sar eax, 16
+        sal edx, 16
+        mov dx, ax
+        mov eax, z
+        add eax, edx
+        mov z, eax
+    }
+#endif
+    v->x = x;
+    v->y = y;
+    v->z = z;
 }
 
 static inline void fx_transform_vector(fx3_t* r, const fx4x3_t* m, const fx3_t* v) {
-#if 0
-    r->x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]);
-    r->y = fx_mul(v->x, m->m[FX4X3_10]) + fx_mul(v->y, m->m[FX4X3_11]) + fx_mul(v->z, m->m[FX4X3_12]);
-    r->z = fx_mul(v->x, m->m[FX4X3_20]) + fx_mul(v->y, m->m[FX4X3_21]) + fx_mul(v->z, m->m[FX4X3_22]);
-#else
-    int32_t x, y, z, w, m0, m1, m2;
-
-    w = v->x;
-    m0 = m->m[FX4X3_00];
-    m1 = m->m[FX4X3_10];
-    m2 = m->m[FX4X3_20];
-
-    __asm {
-        .386
-        mov eax, w
-        mov ecx, eax
-        mov ebx, m0
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov x, edx
-
-        mov eax, ecx
-        mov ebx, m1
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov y, edx
-
-        mov eax, ecx
-        mov ebx, m2
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov z, edx
-    }
-
-    w = v->y;
-    m0 = m->m[FX4X3_01];
-    m1 = m->m[FX4X3_11];
-    m2 = m->m[FX4X3_21];
-
-    __asm {
-        .386
-        mov eax, w
-        mov ecx, eax
-        mov ebx, m0
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, x
-        add eax, edx
-        mov x, eax
-
-        mov eax, ecx
-        mov ebx, m1
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, y
-        add eax, edx
-        mov y, eax
-
-        mov eax, ecx
-        mov ebx, m2
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, z
-        add eax, edx
-        mov z, eax
-    }
-
-    w = v->z;
-    m0 = m->m[FX4X3_02];
-    m1 = m->m[FX4X3_12];
-    m2 = m->m[FX4X3_22];
-
-    __asm {
-        .386
-        mov eax, w
-        mov ecx, eax
-        mov ebx, m0
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, x
-        add eax, edx
-        mov x, eax
-
-        mov eax, ecx
-        mov ebx, m1
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, y
-        add eax, edx
-        mov y, eax
-
-        mov eax, ecx
-        mov ebx, m2
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, z
-        add eax, edx
-        mov z, eax
-    }
-
-    r->x = x;
-    r->y = y;
-    r->z = z;
-#endif
+    *r = *v;
+    fx_transform_vector_ip(m, r);
 }
 
 static inline void fx4x3_mul(fx4x3_t* r, const fx4x3_t* a, const fx4x3_t* b) {
