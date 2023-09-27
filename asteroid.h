@@ -3,8 +3,8 @@
 #define asteroid_num_vertices 8
 #define asteroid_num_indices 36
 
-const fx3_t asteroid_center = { 38, -336, 64 };
-const fx3_t asteroid_size = { 6434, 6204, 6886 };
+const fx3_t asteroid_center = { -272, -7, -85 };
+const fx3_t asteroid_size = { 6434, 6203, 6886 };
 
 const uint16_t asteroid_indices[] = {
 0, 1, 2, 1, 0, 5, 0, 2, 6, 0, 6, 5, 1, 5, 7, 2,
@@ -12,7 +12,7 @@ const uint16_t asteroid_indices[] = {
 3, 7, 6, 3, };
 
 const uint8_t asteroid_face_colors[] = {
-69, 40, 39, 42, 40, 68, 44, 40, 44, 42, 42, 40, };
+69, 40, 39, 42, 40, 68, 40, 40, 40, 42, 42, 40, };
 
 const int8_t asteroid_vertices[] = {
 3, 13, -128,

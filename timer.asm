@@ -1,4 +1,4 @@
-    bits 16
+    bits 32
     cpu 386
 
 segment _TEXT class=CODE
@@ -68,8 +68,13 @@ timer_cleanup_:
     extern _timer_ticks
     
 timer_isr:
-    add word [cs:_timer_ticks], 1
-    adc word [cs:_timer_ticks + 2], 0
+    ; 16 bit
+    ;add word [cs:_timer_ticks], 1
+    ;adc word [cs:_timer_ticks + 2], 0
+
+    ; 32 bit
+    add dword [cs:_timer_ticks], 1
+
     iret
     
     ; vi:ft=nasm ts=8 sts=8 sw=8:

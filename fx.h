@@ -10,6 +10,7 @@
 #define FX_ONE 65536L
 #define FX_DECIMAL_MASK 65535L
 #define FX_HALF 32768L
+#define FX_QUARTER 16384L
 
 #define FX_MIN INT32_MIN
 #define FX_MAX INT32_MAX
@@ -354,7 +355,8 @@ static inline fx_t fx3_length(const fx3_t* v) {
 }
 
 static inline fx_t fx3_length_rcp(const fx3_t* v) {
-    return fx_rcp(fx3_length(v));
+    fx_t length = fx3_length(v);
+    return length != 0 ? fx_rcp(length) : FX_MAX;
 }
 
 static inline fx_t fx3_dot(const fx3_t* a, const fx3_t* b) {
@@ -424,6 +426,11 @@ static inline fx_t fx4_length(const fx4_t* v) {
     return fx_sqrt(fx4_length_squared(v));
 }
 
+static inline fx_t fx4_length_rcp(const fx4_t* v) {
+    fx_t length = fx_sqrt(fx4_length_squared(v));
+    return length != 0 ? fx_rcp(length) : FX_MAX;
+}
+
 static inline void fx4_mul(fx4_t* r, const fx4_t* a, fx_t b) {
     r->x = fx_mul(a->x, b);
     r->y = fx_mul(a->y, b);
@@ -440,11 +447,11 @@ static inline void fx4_mul_ip(fx4_t* a, fx_t b) {
 }
 
 static inline void fx4_normalize(fx4_t* r, const fx4_t* a) {
-    fx4_mul(r, a, fx_rcp(fx4_length(a)));
+    fx4_mul(r, a, fx4_length_rcp(a));
 }
 
 static inline void fx4_normalize_ip(fx4_t* v) {
-    fx4_mul_ip(v, fx_rcp(fx4_length(v)));
+    fx4_mul_ip(v, fx4_length_rcp(v));
 }
 
 //
@@ -833,33 +840,43 @@ static inline void fx_transform_vector(fx3_t* r, const fx4x3_t* m, const fx3_t* 
 }
 
 static inline void fx4x3_mul(fx4x3_t* r, const fx4x3_t* a, const fx4x3_t* b) {
-    r->m[FX4X3_00] = fx_mul(a->m[FX4X3_00], b->m[FX4X3_00]) +
+    r->m[FX4X3_00] =
+        fx_mul(a->m[FX4X3_00], b->m[FX4X3_00]) +
         fx_mul(a->m[FX4X3_01], b->m[FX4X3_10]) +
         fx_mul(a->m[FX4X3_02], b->m[FX4X3_20]);
-    r->m[FX4X3_01] = fx_mul(a->m[FX4X3_00], b->m[FX4X3_01]) +
+    r->m[FX4X3_01] =
+        fx_mul(a->m[FX4X3_00], b->m[FX4X3_01]) +
         fx_mul(a->m[FX4X3_01], b->m[FX4X3_11]) +
         fx_mul(a->m[FX4X3_02], b->m[FX4X3_21]);
-    r->m[FX4X3_02] = fx_mul(a->m[FX4X3_00], b->m[FX4X3_02]) +
+    r->m[FX4X3_02] =
+        fx_mul(a->m[FX4X3_00], b->m[FX4X3_02]) +
         fx_mul(a->m[FX4X3_01], b->m[FX4X3_12]) +
         fx_mul(a->m[FX4X3_02], b->m[FX4X3_22]);
-    r->m[FX4X3_10] = fx_mul(a->m[FX4X3_10], b->m[FX4X3_00]) +
+    r->m[FX4X3_10] =
+        fx_mul(a->m[FX4X3_10], b->m[FX4X3_00]) +
         fx_mul(a->m[FX4X3_11], b->m[FX4X3_10]) +
         fx_mul(a->m[FX4X3_12], b->m[FX4X3_20]);
-    r->m[FX4X3_11] = fx_mul(a->m[FX4X3_10], b->m[FX4X3_01]) +
+    r->m[FX4X3_11] =
+        fx_mul(a->m[FX4X3_10], b->m[FX4X3_01]) +
         fx_mul(a->m[FX4X3_11], b->m[FX4X3_11]) +
         fx_mul(a->m[FX4X3_12], b->m[FX4X3_21]);
-    r->m[FX4X3_12] = fx_mul(a->m[FX4X3_10], b->m[FX4X3_02]) +
+    r->m[FX4X3_12] =
+        fx_mul(a->m[FX4X3_10], b->m[FX4X3_02]) +
         fx_mul(a->m[FX4X3_11], b->m[FX4X3_12]) +
         fx_mul(a->m[FX4X3_12], b->m[FX4X3_22]);
-    r->m[FX4X3_20] = fx_mul(a->m[FX4X3_20], b->m[FX4X3_00]) +
+    r->m[FX4X3_20] =
+        fx_mul(a->m[FX4X3_20], b->m[FX4X3_00]) +
         fx_mul(a->m[FX4X3_21], b->m[FX4X3_10]) +
         fx_mul(a->m[FX4X3_22], b->m[FX4X3_20]);
-    r->m[FX4X3_21] = fx_mul(a->m[FX4X3_20], b->m[FX4X3_01]) +
+    r->m[FX4X3_21] =
+        fx_mul(a->m[FX4X3_20], b->m[FX4X3_01]) +
         fx_mul(a->m[FX4X3_21], b->m[FX4X3_11]) +
         fx_mul(a->m[FX4X3_22], b->m[FX4X3_21]);
-    r->m[FX4X3_22] = fx_mul(a->m[FX4X3_20], b->m[FX4X3_02]) +
+    r->m[FX4X3_22] =
+        fx_mul(a->m[FX4X3_20], b->m[FX4X3_02]) +
         fx_mul(a->m[FX4X3_21], b->m[FX4X3_12]) +
         fx_mul(a->m[FX4X3_22], b->m[FX4X3_22]);
+
     fx_transform_point((fx3_t*)&r->m[FX4X3_30], a, (const fx3_t*)&b->m[FX4X3_30]);
 }
 

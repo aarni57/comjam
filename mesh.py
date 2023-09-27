@@ -8,8 +8,8 @@ import sys
 import subprocess
 import platform
 
-names = [ "ship", "asteroid" ]
-input_path = "/Users/aarni/Desktop"
+names = [ "ship", "asteroid", "scrap" ]
+input_path = "/Users/aarni/dev/comjam"
 output_path = "/Users/aarni/dev/comjam"
 
 def read_binary_file(path):
@@ -44,7 +44,7 @@ def read_s32(bytes, position):
     return i
 
 for name in names:
-    mesh_path = os.path.join(input_path, name + ".001.mesh")
+    mesh_path = os.path.join(input_path, name + ".mesh")
     mesh_bytes = read_binary_file(mesh_path)
 
     num_vertices = read_u16(mesh_bytes, 0)
