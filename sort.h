@@ -108,4 +108,64 @@ static inline void smoothsort(uint32_t __far* indices, uint16_t n) {
     }
 }
 
+static inline void heapsort(uint32_t __far* indices, uint16_t n) {
+    int16_t i, f, s;
+    uint32_t v;
+
+    if (!n)
+        return;
+
+    for (i = 1; i < n; i++) {
+        v = indices[i];
+
+        s = i;
+        f = (s - 1) >> 1;
+
+        while (s > 0 &&
+            (indices[f] & AW_SORT_ORDER_MAX) >
+            (v & AW_SORT_ORDER_MAX)) {
+            indices[s] = indices[f];
+            s = f;
+            f = (s - 1) >> 1;
+        }
+
+        indices[s] = v;
+    }
+
+    for (i = n - 1; i > 0; i--) {
+        v = indices[i];
+        indices[i] = indices[0];
+        f = 0;
+
+        if (i == 1)
+            s = -1;
+        else
+            s = 1;
+
+        if (i > 2 &&
+            (indices[2] & AW_SORT_ORDER_MAX) <
+            (indices[1] & AW_SORT_ORDER_MAX))
+            s = 2;
+
+        while (s >= 0 &&
+            (v & AW_SORT_ORDER_MAX) >
+            (indices[s] & AW_SORT_ORDER_MAX)) {
+            indices[f] = indices[s];
+
+            f = s;
+            s = (f << 1) + 1;
+
+            if (s + 1 <= i - 1 &&
+                (indices[s] & AW_SORT_ORDER_MAX) >
+                (indices[s + 1] & AW_SORT_ORDER_MAX))
+                s = s + 1;
+
+            if (s > i - 1)
+                s = -1;
+        }
+
+        indices[f] = v;
+    }
+}
+
 #endif // AW_SORT_H

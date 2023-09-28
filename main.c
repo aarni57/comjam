@@ -635,11 +635,11 @@ static void draw() {
         if (texts_enabled) {
             if (help) {
                 int16_t y = 4;
-                draw_text("build 2023-09-27", 4, y, 4); y += 12;
+                draw_text("build 2023-09-28", 4, y, 4); y += 12;
                 draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
                 draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
                 draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
-                draw_text("b: Run benchmark", 4, y, 4); y += 6;
+                draw_text("b: Run benchmark (result is shown in blue next to fps)", 4, y, 4); y += 6;
                 draw_text("1-5: Toggle rendering (stars, debris, ship, texts, fps)", 4, y, 4); y += 6;
                 draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
                 draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;

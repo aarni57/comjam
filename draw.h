@@ -232,55 +232,44 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
 }
 
 static void flush_mesh_draw_buffer(int draw_mode) {
-    int16_t x0, y0, x1, y1, x2, y2;
-    uint8_t color;
-    uint16_t i;
-
     aw_assert(draw_buffer_num_triangles <= DRAW_BUFFER_MAX_TRIANGLES);
+
+#if 0
     smoothsort(sort_buffer, draw_buffer_num_triangles);
+#else
+    heapsort(sort_buffer, draw_buffer_num_triangles);
+#endif
 
     switch (draw_mode) {
-    case 0:
-        for (i = 0; i < draw_buffer_num_triangles; ++i) {
-            uint16_t j = sort_buffer[i] >> 16;
-            aw_assert(j < DRAW_BUFFER_MAX_TRIANGLES);
-            j <<= 3;
+        case 0:
+            tris(draw_buffer, sort_buffer, draw_buffer_num_triangles);
+            break;
 
-            x0 = draw_buffer[j + 0];
-            y0 = draw_buffer[j + 1];
-            x1 = draw_buffer[j + 2];
-            y1 = draw_buffer[j + 3];
-            x2 = draw_buffer[j + 4];
-            y2 = draw_buffer[j + 5];
-            color = draw_buffer[j + 6];
+        case 1: {
+            int16_t x0, y0, x1, y1, x2, y2;
+            uint8_t color;
+            uint16_t i;
+            for (i = 0; i < draw_buffer_num_triangles; ++i) {
+                uint16_t j = sort_buffer[i] >> 16;
+                aw_assert(j < DRAW_BUFFER_MAX_TRIANGLES);
+                j <<= 3;
 
-            tri(x0, y0, x1, y1, x2, y2, color);
-            //draw_triangle_lines(x0, y0, x1, y1, x2, y2, color + 1);
-        }
+                x0 = draw_buffer[j + 0];
+                y0 = draw_buffer[j + 1];
+                x1 = draw_buffer[j + 2];
+                y1 = draw_buffer[j + 3];
+                x2 = draw_buffer[j + 4];
+                y2 = draw_buffer[j + 5];
+                color = draw_buffer[j + 6];
 
-        break;
+                draw_triangle_lines(x0, y0, x1, y1, x2, y2, color);
+            }
 
-    case 1:
-        for (i = 0; i < draw_buffer_num_triangles; ++i) {
-            uint16_t j = sort_buffer[i] >> 16;
-            aw_assert(j < DRAW_BUFFER_MAX_TRIANGLES);
-            j <<= 3;
+            break;
+            }
 
-            x0 = draw_buffer[j + 0];
-            y0 = draw_buffer[j + 1];
-            x1 = draw_buffer[j + 2];
-            y1 = draw_buffer[j + 3];
-            x2 = draw_buffer[j + 4];
-            y2 = draw_buffer[j + 5];
-            color = draw_buffer[j + 6];
-
-            draw_triangle_lines(x0, y0, x1, y1, x2, y2, color);
-        }
-
-        break;
-
-    default:
-        break;
+        default:
+            break;
     }
 
      draw_buffer_num_triangles = 0;
