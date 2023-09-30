@@ -7,9 +7,6 @@
 
 //
 
-#define RASTER_SCREEN_X_MAX (SCREEN_WIDTH - 1)
-#define RASTER_SCREEN_Y_MAX (SCREEN_HEIGHT - 1)
-
 #define RASTER_BLOCK_SIZE_SHIFT 2
 #define RASTER_BLOCK_SIZE       4
 #define RASTER_BLOCK_MASK       3
@@ -18,6 +15,8 @@
 #define RASTER_SUBPIXEL_ONE     16
 #define RASTER_SUBPIXEL_MASK    15
 #define RASTER_SUBPIXEL_HALF    8
+
+#define INLINE_ASM
 
 //
 
@@ -28,11 +27,11 @@ static inline void tris(
     uint16_t i, j;
     int16_t x0, y0, x1, y1, x2, y2;
     uint16_t min_x, min_y, max_x, max_y;
-    fx_t dx0, dx1, dx2;
-    fx_t dy0, dy1, dy2;
-    fx_t eo0, eo1, eo2; // Offsets for empty testing
-    fx_t c0, c1, c2, c;
-    uint16_t color16;
+    int32_t dx0, dx1, dx2;
+    int32_t dy0, dy1, dy2;
+    int32_t eo0, eo1, eo2; // Offsets for empty testing
+    int32_t c0, c1, c2;
+    uint32_t color32;
     uint8_t color;
 
     uint8_t __far* screen_row;
@@ -51,38 +50,75 @@ static inline void tris(
         y2 = draw_buffer[j + 5];
         color = draw_buffer[j + 6];
 
-        max_x = clamp16((max16(x0, max16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX);
+        max_x = clamp16((max16(x0, max16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, SCREEN_X_MAX);
         if (max_x == 0)
             continue;
 
-        max_y = clamp16((max16(y0, max16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX);
+        max_y = clamp16((max16(y0, max16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, SCREEN_Y_MAX);
         if (max_y == 0)
             continue;
 
-        min_x = clamp16((min16(x0, min16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
+        min_x = clamp16((min16(x0, min16(x1, x2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, SCREEN_X_MAX) & ~RASTER_BLOCK_MASK;
         if (min_x == max_x)
             continue;
 
-        min_y = clamp16((min16(y0, min16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, RASTER_SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
+        min_y = clamp16((min16(y0, min16(y1, y2)) + RASTER_SUBPIXEL_MASK) >> RASTER_SUBPIXEL_BITS, 0, SCREEN_Y_MAX) & ~RASTER_BLOCK_MASK;
         if (min_y == max_y)
             continue;
 
         //
 
+#if !defined(INLINE_ASM)
         dx0 = x0 - x1;
         dy0 = y0 - y1;
         dx1 = x1 - x2;
         dy1 = y1 - y2;
         dx2 = x2 - x0;
         dy2 = y2 - y0;
-
-        //
-
-#if 0
-        c = imul32(dy0, x0) - imul32(dx0, y0);
 #else
         __asm {
             .386
+            movsx eax, x0
+            movsx ebx, y0
+            movsx ecx, x1
+            movsx edx, y1
+            sub eax, ecx
+            sub ebx, edx
+            mov dx0, eax
+            mov dy0, ebx
+
+            //
+
+            movsx eax, x2
+            movsx ebx, y2
+            sub ecx, eax
+            sub edx, ebx
+            mov dx1, ecx
+            mov dy1, edx
+
+            //
+
+            movsx ecx, x0
+            movsx edx, y0
+            sub eax, ecx
+            sub ebx, edx
+            mov dx2, eax
+            mov dy2, ebx
+        }
+#endif
+
+        //
+
+#if !defined(INLINE_ASM)
+        {
+            int32_t c = imul32(dy0, x0) - imul32(dx0, y0);
+            if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c++;
+            dx0 <<= RASTER_SUBPIXEL_BITS;
+            dy0 <<= RASTER_SUBPIXEL_BITS;
+            c0 = c + imul32(dx0, min_y) - imul32(dy0, min_x);
+        }
+#else
+        __asm {
             mov eax, dy0
             movsx ebx, x0
             imul ebx
@@ -93,26 +129,30 @@ static inline void tris(
             imul ebx
 
             sub ecx, eax
-            mov c, ecx
-        }
-#endif
 
-        if (dy0 < 0 || (dy0 == 0 && dx0 > 0)) c++;
+            mov eax, dy0
+            cmp eax, 0
+            jl increment
+            jne done
 
-#if 0
-        dx0 <<= RASTER_SUBPIXEL_BITS;
-        dy0 <<= RASTER_SUBPIXEL_BITS;
-        c0 = c + imul32(dx0, min_y) - imul32(dy0, min_x);
-#else
-        __asm {
-            .386
+            mov eax, dx0
+            cmp eax, 0
+            jle done
+
+            increment:
+            inc ecx
+
+            done:
+
+            //
+
             mov eax, dx0
             shl eax, RASTER_SUBPIXEL_BITS
             mov dx0, eax
 
             movzx ebx, min_y
             imul ebx
-            mov ecx, eax
+            add ecx, eax
 
             mov eax, dy0
             shl eax, RASTER_SUBPIXEL_BITS
@@ -122,19 +162,22 @@ static inline void tris(
             imul ebx
 
             sub ecx, eax
-            mov eax, c
-            add eax, ecx
-            mov c0, eax
+            mov c0, ecx
         }
 #endif
 
         //
 
-#if 0
-        c = imul32(dy1, x1) - imul32(dx1, y1);
+#if !defined(INLINE_ASM)
+        {
+            int32_t c = imul32(dy1, x1) - imul32(dx1, y1);
+            if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c++;
+            dx1 <<= RASTER_SUBPIXEL_BITS;
+            dy1 <<= RASTER_SUBPIXEL_BITS;
+            c1 = c + imul32(dx1, min_y) - imul32(dy1, min_x);
+        }
 #else
         __asm {
-            .386
             mov eax, dy1
             movsx ebx, x1
             imul ebx
@@ -145,26 +188,30 @@ static inline void tris(
             imul ebx
 
             sub ecx, eax
-            mov c, ecx
-        }
-#endif
 
-        if (dy1 < 0 || (dy1 == 0 && dx1 > 0)) c++;
+            mov eax, dy1
+            cmp eax, 0
+            jl increment
+            jne done
 
-#if 0
-        dx1 <<= RASTER_SUBPIXEL_BITS;
-        dy1 <<= RASTER_SUBPIXEL_BITS;
-        c1 = c + imul32(dx1, min_y) - imul32(dy1, min_x);
-#else
-        __asm {
-            .386
+            mov eax, dx1
+            cmp eax, 0
+            jle done
+
+            increment:
+            inc ecx
+
+            done:
+
+            //
+
             mov eax, dx1
             shl eax, RASTER_SUBPIXEL_BITS
             mov dx1, eax
 
             movzx ebx, min_y
             imul ebx
-            mov ecx, eax
+            add ecx, eax
 
             mov eax, dy1
             shl eax, RASTER_SUBPIXEL_BITS
@@ -174,19 +221,22 @@ static inline void tris(
             imul ebx
 
             sub ecx, eax
-            mov eax, c
-            add eax, ecx
-            mov c1, eax
+            mov c1, ecx
         }
 #endif
 
         //
 
-#if 0
-        c = imul32(dy2, x2) - imul32(dx2, y2);
+#if !defined(INLINE_ASM)
+        {
+            int32_t c = imul32(dy2, x2) - imul32(dx2, y2);
+            if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c++;
+            dx2 <<= RASTER_SUBPIXEL_BITS;
+            dy2 <<= RASTER_SUBPIXEL_BITS;
+            c2 = c + imul32(dx2, min_y) - imul32(dy2, min_x);
+        }
 #else
         __asm {
-            .386
             mov eax, dy2
             movsx ebx, x2
             imul ebx
@@ -197,26 +247,30 @@ static inline void tris(
             imul ebx
 
             sub ecx, eax
-            mov c, ecx
-        }
-#endif
 
-        if (dy2 < 0 || (dy2 == 0 && dx2 > 0)) c++;
+            mov eax, dy2
+            cmp eax, 0
+            jl increment
+            jne done
 
-#if 0
-        dx2 <<= RASTER_SUBPIXEL_BITS;
-        dy2 <<= RASTER_SUBPIXEL_BITS;
-        c2 = c + imul32(dx2, min_y) - imul32(dy2, min_x);
-#else
-        __asm {
-            .386
+            mov eax, dx2
+            cmp eax, 0
+            jle done
+
+            increment:
+            inc ecx
+
+            done:
+
+            //
+
             mov eax, dx2
             shl eax, RASTER_SUBPIXEL_BITS
             mov dx2, eax
 
             movzx ebx, min_y
             imul ebx
-            mov ecx, eax
+            add ecx, eax
 
             mov eax, dy2
             shl eax, RASTER_SUBPIXEL_BITS
@@ -226,14 +280,13 @@ static inline void tris(
             imul ebx
 
             sub ecx, eax
-            mov eax, c
-            add eax, ecx
-            mov c2, eax
+            mov c2, ecx
         }
     #endif
 
         //
 
+#if !defined(INLINE_ASM)
         eo0 = 0;
         if (dy0 < 0) eo0 = eo0 - (dy0 << RASTER_BLOCK_SIZE_SHIFT);
         if (dx0 > 0) eo0 = eo0 + (dx0 << RASTER_BLOCK_SIZE_SHIFT);
@@ -245,10 +298,83 @@ static inline void tris(
         eo2 = 0;
         if (dy2 < 0) eo2 = eo2 - (dy2 << RASTER_BLOCK_SIZE_SHIFT);
         if (dx2 > 0) eo2 = eo2 + (dx2 << RASTER_BLOCK_SIZE_SHIFT);
+#else
+        __asm {
+            // 0
+            xor eax, eax
+
+            mov ebx, dy0
+            cmp ebx, 0
+            jge skip_dy0
+
+            shl ebx, RASTER_BLOCK_SIZE_SHIFT
+            sub eax, ebx
+
+            skip_dy0:
+            mov ebx, dx0
+            cmp ebx, 0
+            jle skip_dx0
+
+            shl ebx, RASTER_BLOCK_SIZE_SHIFT
+            add eax, ebx
+
+            skip_dx0:
+            mov eo0, eax
+
+            // 1
+            xor eax, eax
+
+            mov ebx, dy1
+            cmp ebx, 0
+            jge skip_dy1
+
+            shl ebx, RASTER_BLOCK_SIZE_SHIFT
+            sub eax, ebx
+
+            skip_dy1:
+            mov ebx, dx1
+            cmp ebx, 0
+            jle skip_dx1
+
+            shl ebx, RASTER_BLOCK_SIZE_SHIFT
+            add eax, ebx
+
+            skip_dx1:
+            mov eo1, eax
+
+            // 2
+            xor eax, eax
+
+            mov ebx, dy2
+            cmp ebx, 0
+            jge skip_dy2
+
+            shl ebx, RASTER_BLOCK_SIZE_SHIFT
+            sub eax, ebx
+
+            skip_dy2:
+            mov ebx, dx2
+            cmp ebx, 0
+            jle skip_dx2
+
+            shl ebx, RASTER_BLOCK_SIZE_SHIFT
+            add eax, ebx
+
+            skip_dx2:
+            mov eo2, eax
+        }
+#endif
 
         //
 
-        color16 = (uint16_t)color | ((uint16_t)color << 8);
+        __asm {
+            movzx eax, color
+            mov ah, al
+            shl eax, 16
+            mov ah, color
+            mov al, color
+            mov color32, eax
+        }
 
         screen_row = dblbuf + mul_by_screen_stride(min_y);
         screen_row_end = dblbuf + mul_by_screen_stride(max_y);
@@ -257,7 +383,7 @@ static inline void tris(
             uint16_t x = min_x;
             fx_t cx0, cx1, cx2;
 
-#if 0
+#if !defined(INLINE_ASM)
             cx0 = c0;
             cx1 = c1;
             cx2 = c2;
@@ -274,7 +400,6 @@ static inline void tris(
             }
 #else
             __asm {
-                .386
                 mov eax, c0
                 mov ebx, c1
                 mov ecx, c2
@@ -321,18 +446,17 @@ static inline void tris(
             }
 #endif
 
-            while (x < max_x) {
+            if (x < max_x) {
+                uint8_t __far* screen_block = screen_row;
                 fx_t ciy0, ciy1, ciy2;
                 uint8_t iy;
-                uint8_t __far* screen_block = screen_row + x;
 
-#if 0
-                fx_t ciy0 = cx0;
-                fx_t ciy1 = cx1;
-                fx_t ciy2 = cx2;
+#if !defined(INLINE_ASM)
+                ciy0 = cx0;
+                ciy1 = cx1;
+                ciy2 = cx2;
 #else
                 __asm {
-                    .386
                     mov eax, cx0
                     mov ebx, cx1
                     mov ecx, cx2
@@ -343,15 +467,14 @@ static inline void tris(
 #endif
 
                 for (iy = 0; iy < RASTER_BLOCK_SIZE; ++iy) {
-                    uint8_t left = 0;
+                    uint16_t hleft = x;
                     fx_t cix0, cix1, cix2;
-#if 0
+#if !defined(INLINE_ASM)
                     cix0 = ciy0;
                     cix1 = ciy1;
                     cix2 = ciy2;
 #else
                     __asm {
-                        .386
                         mov eax, ciy0
                         mov ebx, ciy1
                         mov ecx, ciy2
@@ -361,20 +484,19 @@ static inline void tris(
                     }
 #endif
 
-#if 0
+#if !defined(INLINE_ASM)
                     while ((cix0 | cix1 | cix2) <= 0) {
                         cix0 -= dy0;
                         cix1 -= dy1;
                         cix2 -= dy2;
 
-                        ++left;
-                        if (left == RASTER_BLOCK_SIZE) {
+                        hleft++;
+                        if (hleft > max_x) {
                             break;
                         }
                     }
 #else
                     __asm {
-                        .386
                         mov eax, cix0
                         mov ebx, cix1
                         mov ecx, cix2
@@ -395,13 +517,14 @@ static inline void tris(
                         mov edx, dy2
                         sub ecx, edx
 
-                        mov dl, left
-                        inc dl
-                        mov left, dl
-                        cmp dl, RASTER_BLOCK_SIZE
-                        je done
+                        mov dx, hleft
+                        inc dx
+                        mov hleft, dx
+                        cmp dx, max_x
+                        jg done
 
                         jmp cont
+
                         done:
                         mov cix0, eax
                         mov cix1, ebx
@@ -409,23 +532,22 @@ static inline void tris(
                     }
 #endif
 
-                    if (left != RASTER_BLOCK_SIZE) {
-                        uint8_t right = left;
+                    if (hleft <= max_x) {
+                        uint16_t hright = hleft;
 
-#if 0
+#if !defined(INLINE_ASM)
                         while ((cix0 | cix1 | cix2) > 0) {
                             cix0 -= dy0;
                             cix1 -= dy1;
                             cix2 -= dy2;
 
-                            right++;
-                            if (right == RASTER_BLOCK_SIZE) {
+                            hright++;
+                            if (hright > max_x) {
                                 break;
                             }
                         }
 #else
                         __asm {
-                            .386
                             mov eax, cix0
                             mov ebx, cix1
                             mov ecx, cix2
@@ -446,53 +568,58 @@ static inline void tris(
                             mov edx, dy2
                             sub ecx, edx
 
-                            mov dl, right
-                            inc dl
-                            mov right, dl
-                            cmp dl, RASTER_BLOCK_SIZE
-                            je done
+                            mov dx, hright
+                            inc dx
+                            mov hright, dx
+                            cmp dx, max_x
+                            jg done
 
                             jmp cont
+
                             done:
                         }
 #endif
 
+#if !defined(INLINE_ASM)
                         {
-#if 0
-                            uint8_t __far* tgt = screen_block + left;
-                            uint16_t width = right - left;
-                            uint8_t __far* tgt_end = tgt + width;
-                            while (tgt < tgt_end) {
+                            uint8_t __far* tgt = screen_block + hleft;
+                            uint8_t __far* tgt_end = screen_block + hright;
+                            while (tgt < tgt_end)
                                 *tgt++ = color;
-                            }
-#else
-                            __asm {
-                                .386
-                                mov edx, screen_block
-                                movzx eax, left
-                                add edx, eax
-                                movzx cx, right
-                                sub cx, ax
-                                movzx edi, dx
-                                shr edx, 16
-                                mov es, dx
-                                mov ax, color16
-                                shr cx, 1
-                                rep stosw
-                                adc cx, cx
-                                rep stosb
-                            }
-#endif
                         }
+#else
+                        __asm {
+                            movzx eax, hleft
+
+                            mov edx, screen_block
+                            add edx, eax
+                            movzx edi, dx
+                            shr edx, 16
+                            mov es, dx
+
+                            mov cx, hright
+                            sub cx, ax // cx = width
+                            mov dx, ax // dx = hleft
+
+                            mov eax, color32
+                            mov bx, cx
+
+                            shr cx, 2
+                            rep stosd
+
+                            mov cx, bx
+                            and cx, 3
+                            rep stosb
+                        }
+#endif
                     }
 
-#if 0
+#if !defined(INLINE_ASM)
                     ciy0 += dx0;
                     ciy1 += dx1;
                     ciy2 += dx2;
 #else
                     __asm {
-                        .386
                         mov eax, ciy0
                         mov ebx, ciy1
                         mov ecx, ciy2
@@ -509,48 +636,14 @@ static inline void tris(
 
                     screen_block += SCREEN_STRIDE;
                 }
-
-#if 0
-                cx0 -= dy0 << RASTER_BLOCK_SIZE_SHIFT;
-                cx1 -= dy1 << RASTER_BLOCK_SIZE_SHIFT;
-                cx2 -= dy2 << RASTER_BLOCK_SIZE_SHIFT;
-#else
-                __asm {
-                    .386
-                    mov eax, cx0
-                    mov ebx, dy0
-                    shl ebx, RASTER_BLOCK_SIZE_SHIFT
-                    sub eax, ebx
-                    mov cx0, eax
-
-                    mov eax, cx1
-                    mov ebx, dy1
-                    shl ebx, RASTER_BLOCK_SIZE_SHIFT
-                    sub eax, ebx
-                    mov cx1, eax
-
-                    mov eax, cx2
-                    mov ebx, dy2
-                    shl ebx, RASTER_BLOCK_SIZE_SHIFT
-                    sub eax, ebx
-                    mov cx2, eax
-                }
-#endif
-
-                x += RASTER_BLOCK_SIZE;
-
-                if ((cx0 + eo0) <= 0 || (cx1 + eo1) <= 0 || (cx2 + eo2) <= 0) {
-                    break;
-                }
             }
 
-#if 0
+#if !defined(INLINE_ASM)
             c0 += dx0 << RASTER_BLOCK_SIZE_SHIFT;
             c1 += dx1 << RASTER_BLOCK_SIZE_SHIFT;
             c2 += dx2 << RASTER_BLOCK_SIZE_SHIFT;
 #else
             __asm {
-                .386
                 mov eax, c0
                 mov ebx, dx0
                 shl ebx, RASTER_BLOCK_SIZE_SHIFT

@@ -437,7 +437,7 @@ static void draw_stars(const fx4x3_t* view_matrix) {
         switch (i & 7) {
             case 0:
             case 1: {
-                if (x >= 0 && x < SCREEN_WIDTH && y >= 0 && y < SCREEN_HEIGHT) {
+                if (x >= 0 && x <= SCREEN_X_MAX && y >= 0 && y <= SCREEN_Y_MAX) {
                     uint16_t offset = mul_by_screen_stride(y) + x;
                     dblbuf[offset] = 96;
                 }
@@ -448,7 +448,7 @@ static void draw_stars(const fx4x3_t* view_matrix) {
             case 2:
             case 3:
             case 4: {
-                if (x >= 0 && x < SCREEN_WIDTH && y >= 0 && y < SCREEN_HEIGHT) {
+                if (x >= 0 && x <= SCREEN_X_MAX && y >= 0 && y <= SCREEN_Y_MAX) {
                     uint16_t offset = mul_by_screen_stride(y) + x;
                     dblbuf[offset] = 9;
                 }
@@ -458,7 +458,7 @@ static void draw_stars(const fx4x3_t* view_matrix) {
 
             case 5:
             case 6: {
-                if (x >= 1 && x < SCREEN_WIDTH - 1 && y >= 1 && y < SCREEN_HEIGHT - 1) {
+                if (x >= 1 && x <= SCREEN_X_MAX - 1 && y >= 1 && y <= SCREEN_Y_MAX - 1) {
                     uint16_t offset = mul_by_screen_stride(y) + x;
                     dblbuf[offset - SCREEN_WIDTH] = 8;
                     dblbuf[offset - 1] = 8;
@@ -471,7 +471,7 @@ static void draw_stars(const fx4x3_t* view_matrix) {
             }
 
             case 7: {
-                if (x >= 1 && x < SCREEN_WIDTH - 1 && y >= 1 && y < SCREEN_HEIGHT - 1) {
+                if (x >= 1 && x < SCREEN_X_MAX - 1 && y >= 1 && y < SCREEN_Y_MAX - 1) {
                     uint16_t offset = mul_by_screen_stride(y) + x;
                     dblbuf[offset - SCREEN_WIDTH] = 9;
                     dblbuf[offset - 1] = 9;
@@ -567,16 +567,10 @@ static void draw_debris(const fx4x3_t* view_matrix) {
         rotation_angle = position->y * 80;
         fx_quat_rotation_axis_angle(&rotation, &debris_rotation_axes[i], rotation_angle);
 
-        switch (i) {
-            case 0:
-            case 1:
-            case 2:
-            case 3:
-                draw_scrap(view_matrix, &rotation, position);
-                break;
-            default:
-                draw_asteroid(view_matrix, &rotation, position);
-                break;
+        if (i < NUM_DEBRIS / 4) {
+            draw_scrap(view_matrix, &rotation, position);
+        } else {
+            draw_asteroid(view_matrix, &rotation, position);
         }
     }
 }
@@ -618,6 +612,7 @@ static void draw_texts() {
 
 static void draw() {
     fx4x3_t view_matrix;
+
     setup_view_matrix(&view_matrix);
 
     if (stars_enabled)
@@ -635,7 +630,7 @@ static void draw() {
         if (texts_enabled) {
             if (help) {
                 int16_t y = 4;
-                draw_text("build 2023-09-28", 4, y, 4); y += 12;
+                draw_text("build 2023-09-29", 4, y, 4); y += 12;
                 draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
                 draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
                 draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
@@ -661,8 +656,6 @@ static void draw() {
         }
     }
 }
-
-void asm_ptr_test(uint32_t __far* ptr);
 
 void main() {
     aw_assert(ship_num_indices % 3 == 0);

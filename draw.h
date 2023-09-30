@@ -89,6 +89,38 @@ static inline void draw_triangle_lines(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t 
     draw_line(x2, y2, x0, y0, c);
 }
 
+static inline int is_front_facing(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+    int r = 0;
+    int16_t x20, y10, y20, x10;
+
+    x20 = x2 - x0;
+    y10 = y1 - y0;
+    y20 = y2 - y0;
+    x10 = x1 - x0;
+
+    __asm {
+        // ecx = (x2 - x0) * (y1 - y0)
+        movsx eax, x20
+        movsx ebx, y10
+        imul ebx
+        mov ecx, eax
+
+        // eax = (y2 - y0) * (x1 - x0)
+        movsx eax, y20
+        movsx ebx, x10
+        imul ebx
+
+        cmp eax, ecx
+        jge back
+
+        mov r, 1
+
+        back:
+    }
+
+    return r;
+}
+
 static inline int32_t calc_triangle_area(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
 #if 0
     return imul32(x2 - x0, y1 - y0) - imul32(y2 - y0, x1 - x0);
@@ -131,8 +163,8 @@ static inline int32_t calc_triangle_area(int16_t x0, int16_t y0, int16_t x1, int
 
 //
 
-#define TM_BUFFER_COUNT 1024
-#define TM_BUFFER_SIZE (TM_BUFFER_COUNT * 3)
+#define TM_BUFFER_MAX_VERTICES 1024
+#define TM_BUFFER_SIZE (TM_BUFFER_MAX_VERTICES * 3)
 static int16_t __far* tm_buffer = NULL;
 
 #define DRAW_BUFFER_MAX_TRIANGLES 1024
@@ -147,7 +179,7 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
     const uint8_t* face_colors,
     const int8_t* vertices) {
 
-    aw_assert(num_vertices <= TM_BUFFER_COUNT);
+    aw_assert(num_vertices <= TM_BUFFER_MAX_VERTICES);
     aw_assert(num_indices % 3 == 0);
     aw_assert(draw_buffer_num_triangles + num_indices / 3 <= DRAW_BUFFER_MAX_TRIANGLES);
 
@@ -164,6 +196,7 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
             fx_transform_point_ip(model_view_matrix, &v);
 
             project_to_screen(&v);
+
             *tm_iter++ = fx_clamp(v.x, INT16_MIN, INT16_MAX);
             *tm_iter++ = fx_clamp(v.y, INT16_MIN, INT16_MAX);
             *tm_iter++ = fx_clamp(v.z, INT16_MIN, INT16_MAX);
@@ -208,9 +241,22 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
             x1 = tm_buffer[c + 0];
             y1 = tm_buffer[c + 1];
 
-            if (calc_triangle_area(x0, y0, x1, y1, x2, y2) > 0) {
-                uint32_t z_value = ((uint32_t)z0 + z1 + z2) >> 4;
-                aw_assert(z_value < 0x10000UL);
+            if (is_front_facing(x0, y0, x1, y1, x2, y2)) {
+                uint16_t z_value;
+
+#if 0
+                z_value = (uint16_t)(((uint32_t)z0 + z1 + z2) >> 4);
+#else
+                __asm {
+                    movzx eax, z0
+                    movzx ebx, z1
+                    movzx ecx, z2
+                    add eax, ebx
+                    add eax, ecx
+                    sar eax, 4
+                    mov z_value, ax
+                }
+#endif
 
                 draw_buffer_tgt[0] = x0;
                 draw_buffer_tgt[1] = y0;

@@ -63,10 +63,3 @@ random_debris_x_:
 xorshift32_reset_:
     mov dword [xorshift32_state], initial_value
     ret
-
-    global asm_ptr_test_
-asm_ptr_test_:
-    mov bx, ax
-    mov es, dx
-    mov dword [es:bx], 123
-    ret
