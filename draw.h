@@ -8,17 +8,21 @@
 
 //
 
-#define NEAR_CLIP 32
+#define NEAR_CLIP 256
+#define FAR_CLIP 1048576L
 
 static inline void project_to_screen(fx3_t* v) {
-#if 0
+#if !defined(INLINE_ASM)
     fx_t ooz;
 
-    if (v->z < NEAR_CLIP) {
+    if (v->z < NEAR_CLIP || v->z > FAR_CLIP) {
+        v->z = 0;
         return;
     }
 
-    fx_t ooz = 0xffffffff / v->z;
+    ooz = 0xffffffff / v->z;
+
+    v->z >>= 8;
 
     v->x *= SCREEN_LOGICAL_HEIGHT;
     v->y *= SCREEN_HEIGHT;
@@ -26,10 +30,11 @@ static inline void project_to_screen(fx3_t* v) {
     v->x = fx_mul(v->x, ooz) >> (16 - RASTER_SUBPIXEL_BITS);
     v->y = fx_mul(v->y, -ooz) >> (16 - RASTER_SUBPIXEL_BITS);
 
-    v->x += RASTER_SCREEN_CENTER_X;
-    v->y += RASTER_SCREEN_CENTER_Y;
+    v->x += SCREEN_CENTER_X << RASTER_SUBPIXEL_BITS;
+    v->y += SCREEN_CENTER_Y << RASTER_SUBPIXEL_BITS;
 #else
-    if (v->z < NEAR_CLIP) {
+    if (v->z < NEAR_CLIP || v->z > FAR_CLIP) {
+        v->z = 0;
         return;
     }
 
@@ -42,6 +47,9 @@ static inline void project_to_screen(fx3_t* v) {
         xor eax, eax
         idiv ecx
         mov ebx, eax
+
+        sar ecx, 8
+        mov 8[si], ecx
 
         // x
         mov eax, [si]
@@ -69,6 +77,8 @@ static inline void project_to_screen(fx3_t* v) {
         mov 4[si], eax
     }
 #endif
+
+    aw_assert(v->z <= UINT16_MAX);
 }
 
 //
@@ -85,40 +95,8 @@ static inline void draw_triangle_lines(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t 
     draw_line(x2, y2, x0, y0, c);
 }
 
-static inline int is_front_facing(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
-    int r = 0;
-    int16_t x20, y10, y20, x10;
-
-    x20 = x2 - x0;
-    y10 = y1 - y0;
-    y20 = y2 - y0;
-    x10 = x1 - x0;
-
-    __asm {
-        // ecx = (x2 - x0) * (y1 - y0)
-        movsx eax, x20
-        movsx ebx, y10
-        imul ebx
-        mov ecx, eax
-
-        // eax = (y2 - y0) * (x1 - x0)
-        movsx eax, y20
-        movsx ebx, x10
-        imul ebx
-
-        cmp eax, ecx
-        jge back
-
-        mov r, 1
-
-        back:
-    }
-
-    return r;
-}
-
 static inline int32_t calc_triangle_area(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
-#if 0
+#if !defined(INLINE_ASM)
     return imul32(x2 - x0, y1 - y0) - imul32(y2 - y0, x1 - x0);
 #else
     int32_t a;
@@ -157,13 +135,49 @@ static inline int32_t calc_triangle_area(int16_t x0, int16_t y0, int16_t x1, int
 #endif
 }
 
+static inline int is_front_facing(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+#if !defined(INLINE_ASM)
+    return calc_triangle_area(x0, y0, x1, y1, x2, y2) > 0;
+#else
+    int r = 0;
+    int16_t x20, y10, y20, x10;
+
+    x20 = x2 - x0;
+    y10 = y1 - y0;
+    y20 = y2 - y0;
+    x10 = x1 - x0;
+
+    __asm {
+        // ecx = (x2 - x0) * (y1 - y0)
+        movsx eax, x20
+        movsx ebx, y10
+        imul ebx
+        mov ecx, eax
+
+        // eax = (y2 - y0) * (x1 - x0)
+        movsx eax, y20
+        movsx ebx, x10
+        imul ebx
+
+        cmp eax, ecx
+        jge back
+
+        mov r, 1
+
+        back:
+    }
+
+    return r;
+#endif
+}
+
 //
 
 #define TM_BUFFER_MAX_VERTICES 1024
 #define TM_BUFFER_SIZE (TM_BUFFER_MAX_VERTICES * 3)
 static int16_t __far* tm_buffer = NULL;
 
-#define DRAW_BUFFER_MAX_TRIANGLES 1024
+#define DRAW_BUFFER_MAX_TRIANGLES 2048
 static uint16_t draw_buffer_num_triangles = 0;
 static int16_t __far* draw_buffer = NULL;
 static uint32_t __far* sort_buffer = NULL;
@@ -215,44 +229,30 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
 
             a = (a << 1) + a;
             z0 = tm_buffer[a + 2];
-            if (z0 < NEAR_CLIP)
+            if (z0 == 0)
                 continue;
 
             x0 = tm_buffer[a + 0];
             y0 = tm_buffer[a + 1];
 
             b = (b << 1) + b;
-            z2 = tm_buffer[b + 2];
-            if (z2 < NEAR_CLIP)
+            z1 = tm_buffer[b + 2];
+            if (z1 == 0)
                 continue;
 
-            x2 = tm_buffer[b + 0];
-            y2 = tm_buffer[b + 1];
+            x1 = tm_buffer[b + 0];
+            y1 = tm_buffer[b + 1];
 
             c = (c << 1) + c;
-            z1 = tm_buffer[c + 2];
-            if (z1 < NEAR_CLIP)
+            z2 = tm_buffer[c + 2];
+            if (z2 == 0)
                 continue;
 
-            x1 = tm_buffer[c + 0];
-            y1 = tm_buffer[c + 1];
+            x2 = tm_buffer[c + 0];
+            y2 = tm_buffer[c + 1];
 
             if (is_front_facing(x0, y0, x1, y1, x2, y2)) {
-                uint16_t z_value;
-
-#if 0
-                z_value = (uint16_t)(((uint32_t)z0 + z1 + z2) >> 4);
-#else
-                __asm {
-                    movzx eax, z0
-                    movzx ebx, z1
-                    movzx ecx, z2
-                    add eax, ebx
-                    add eax, ecx
-                    sar eax, 4
-                    mov z_value, ax
-                }
-#endif
+                uint16_t z_value = z0 + z1 + z2;
 
                 draw_buffer_tgt[0] = x0;
                 draw_buffer_tgt[1] = y0;

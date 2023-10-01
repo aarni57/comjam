@@ -8,6 +8,12 @@
 
 //
 
+#if defined(__WATCOMC__)
+#   define INLINE_ASM
+#endif
+
+//
+
 #if 0
 #   include <assert.h>
 #   define aw_assert assert
@@ -29,6 +35,8 @@
 #include "ship.h"
 #include "asteroid.h"
 #include "scrap.h"
+#include "scrap2.h"
+#include "scrap3.h"
 
 //
 
@@ -86,7 +94,7 @@ static struct {
     uint32_t average;
 } fps = { 0 };
 
-#define TICK_LENGTH_US (1000000UL / 60)
+#define TICK_LENGTH_US (1000000UL / 120)
 
 static struct {
     uint32_t current_frame;
@@ -97,7 +105,7 @@ static struct {
 
 //
 
-#if 0
+#if !defined(INLINE_ASM)
 #define XORSHIFT32_INITIAL_VALUE 0xcafebabe
 static uint32_t xorshift32_state = XORSHIFT32_INITIAL_VALUE;
 
@@ -117,7 +125,7 @@ uint32_t xorshift32();
 void xorshift32_reset();
 #endif
 
-#if 0
+#if !defined(INLINE_ASM)
 static inline fx_t fx_random_one() {
     return xorshift32() & (FX_ONE - 1);
 }
@@ -127,7 +135,7 @@ static inline fx_t fx_random_signed_one() {
 }
 
 static inline fx_t random_debris_x() {
-    return fx_random_signed_one() >> 5;
+    return fx_random_signed_one() >> 1;
 }
 #else
 fx_t fx_random_one();
@@ -135,10 +143,10 @@ fx_t fx_random_signed_one();
 fx_t random_debris_x();
 #endif
 
-#define NUM_DEBRIS 16
+#define NUM_DEBRIS 56
 static fx3_t debris_positions[NUM_DEBRIS];
 static fx3_t debris_rotation_axes[NUM_DEBRIS];
-static fx_t debris_speeds[NUM_DEBRIS];
+static fx3_t debris_speeds[NUM_DEBRIS];
 
 static inline void randomize_debris_properties(uint16_t i) {
     fx3_t r;
@@ -148,7 +156,20 @@ static inline void randomize_debris_properties(uint16_t i) {
     fx3_normalize_ip(&r);
     debris_rotation_axes[i] = r;
 
-    debris_speeds[i] = (fx_random_one() >> 12) + (FX_ONE >> 12);
+    switch (i & 3) {
+        case 0:
+        case 1:
+        case 2:
+            debris_speeds[i].x = (fx_random_one() >> 12);
+            debris_speeds[i].y = (fx_random_one() >> 12) - (FX_ONE >> 10);
+            debris_speeds[i].z = (fx_random_one() >> 12);
+            break;
+        case 3:
+            debris_speeds[i].x = (fx_random_one() >> 13);
+            debris_speeds[i].y = (fx_random_one() >> 13) - (FX_ONE >> 10);
+            debris_speeds[i].z = (fx_random_one() >> 13);
+            break;
+    }
 }
 
 static void init_debris() {
@@ -277,12 +298,23 @@ static void update_input() {
 static void update_debris() {
     uint16_t i;
     for (i = 0; i < NUM_DEBRIS; ++i) {
-        debris_positions[i].y -= debris_speeds[i];
-        if (debris_positions[i].y <= -2048) {
-            debris_positions[i].y += 4096;
+        fx3_add_ip(&debris_positions[i], &debris_speeds[i]);
+        if (debris_positions[i].y <= -32768) {
+            debris_positions[i].y += 65536;
             debris_positions[i].x = random_debris_x();
             debris_positions[i].z = random_debris_x();
-            randomize_debris_properties(i);
+        } else {
+            if (debris_positions[i].x <= -32768) {
+                debris_positions[i].x += 65536;
+            } else if (debris_positions[i].x >= 32768) {
+                debris_positions[i].x -= 65536;
+            }
+
+            if (debris_positions[i].z <= -32768) {
+                debris_positions[i].z += 65536;
+            } else if (debris_positions[i].z >= 32768) {
+                debris_positions[i].z -= 65536;
+            }
         }
     }
 }
@@ -296,7 +328,9 @@ static void update() {
 
 static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h, uint8_t* th) {
     uint8_t ones, tens, hundreds, thousands;
-#if 0
+#if !defined(INLINE_ASM)
+    thousands = v / 1000;
+    v -= thousands * 1000;
     hundreds = v / 100;
     v -= hundreds * 100;
     tens = v / 10;
@@ -355,21 +389,32 @@ static const fx3_t axis_y = { 0, FX_ONE, 0 };
 static const fx3_t axis_z = { 0, 0, FX_ONE };
 
 static void setup_view_matrix(fx4x3_t* view_matrix) {
-    fx_t rotation_angle_x = fx_sin(-10000 + (fx_t)timing.current_tick * 27) / 12;
-    fx_t rotation_angle_z = 25000 + (fx_t)timing.current_tick * 40;
-    fx4_t view_rotation_x;
-    fx4_t view_rotation_z;
-    fx4_t view_rotation;
-    fx3_t view_translation = { 0, 0, 1400 };
+    fx3_t eye, target;
+    fx_t t1, t2, s1, c1, s2;
 
-    fx_quat_rotation_axis_angle(&view_rotation_x, &axis_x, -FX_ONE / 4 + rotation_angle_x);
-    fx_quat_rotation_axis_angle(&view_rotation_z, &axis_z, rotation_angle_z);
-    fx_quat_mul(&view_rotation, &view_rotation_x, &view_rotation_z);
+    t1 = 25000 + (fx_t)timing.current_tick * 20;
+    t2 = fx_sin(-10000 + (fx_t)timing.current_tick * 13) / 12;
 
-    fx4x3_rotation_translation(view_matrix, &view_rotation, &view_translation);
+    s1 = fx_sin(t1);
+    c1 = fx_cos(t1);
+    s2 = fx_sin(t2);
+
+    eye.x = s1;
+    eye.y = c1;
+    eye.z = s2;
+    fx3_normalize_ip(&eye);
+    eye.x >>= 2;
+    eye.y >>= 2;
+    eye.z >>= 2;
+
+    target.x = 0;
+    target.y = 0;
+    target.z = 0;
+
+    fx4x3_look_at(view_matrix, &eye, &target);
 }
 
-#define NUM_STARS 128
+#define NUM_STARS 160
 static int8_t star_positions[NUM_STARS * 3];
 
 static void init_stars() {
@@ -489,10 +534,14 @@ static void draw_stars(const fx4x3_t* view_matrix) {
 static fx4x3_t ship_mesh_adjust_matrix;
 static fx4x3_t asteroid_mesh_adjust_matrix;
 static fx4x3_t scrap_mesh_adjust_matrix;
+static fx4x3_t scrap2_mesh_adjust_matrix;
+static fx4x3_t scrap3_mesh_adjust_matrix;
 
 static void draw_ship(const fx4x3_t* view_matrix) {
     fx4x3_t model_matrix, tmp, model_view_matrix;
     fx3_t model_translation;
+
+#if 0
     fx_t t1, t2;
 
     t1 = (fx_t)timing.current_tick * 22;
@@ -500,6 +549,11 @@ static void draw_ship(const fx4x3_t* view_matrix) {
     model_translation.x = fx_cos(t1) >> 7;
     model_translation.y = 0;
     model_translation.z = (fx_sin(t2) >> 8) + 64;
+#else
+    model_translation.x = 0;
+    model_translation.y = 0;
+    model_translation.z = 0;
+#endif
 
     fx4x3_translation(&model_matrix, &model_translation);
 
@@ -539,6 +593,34 @@ static void draw_scrap(const fx4x3_t* view_matrix, const fx4_t* rotation,
         scrap_indices, scrap_face_colors, scrap_vertices);
 }
 
+static void draw_scrap2(const fx4x3_t* view_matrix, const fx4_t* rotation,
+    const fx3_t* translation) {
+    fx4x3_t model_matrix, tmp, model_view_matrix;
+
+    fx4x3_rotation_translation(&model_matrix, rotation, translation);
+
+    fx4x3_mul(&tmp, &model_matrix, &scrap2_mesh_adjust_matrix);
+    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
+
+    draw_mesh(&model_view_matrix,
+        scrap2_num_indices, scrap2_num_vertices,
+        scrap2_indices, scrap2_face_colors, scrap2_vertices);
+}
+
+static void draw_scrap3(const fx4x3_t* view_matrix, const fx4_t* rotation,
+    const fx3_t* translation) {
+    fx4x3_t model_matrix, tmp, model_view_matrix;
+
+    fx4x3_rotation_translation(&model_matrix, rotation, translation);
+
+    fx4x3_mul(&tmp, &model_matrix, &scrap3_mesh_adjust_matrix);
+    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
+
+    draw_mesh(&model_view_matrix,
+        scrap3_num_indices, scrap3_num_vertices,
+        scrap3_indices, scrap3_face_colors, scrap3_vertices);
+}
+
 #define DEBRIS_CLIP_BORDER 32
 #define DEBRIS_LEFT_CLIP (-DEBRIS_CLIP_BORDER << RASTER_SUBPIXEL_BITS)
 #define DEBRIS_RIGHT_CLIP ((SCREEN_WIDTH + DEBRIS_CLIP_BORDER) << RASTER_SUBPIXEL_BITS)
@@ -564,13 +646,22 @@ static void draw_debris(const fx4x3_t* view_matrix) {
             transformed_position.y > DEBRIS_BOTTOM_CLIP)
             continue;
 
-        rotation_angle = position->y * 80;
+        rotation_angle = position->y << 3;
         fx_quat_rotation_axis_angle(&rotation, &debris_rotation_axes[i], rotation_angle);
 
-        if (i < NUM_DEBRIS / 4) {
-            draw_scrap(view_matrix, &rotation, position);
-        } else {
-            draw_asteroid(view_matrix, &rotation, position);
+        switch (i & 3) {
+            case 0:
+                draw_scrap(view_matrix, &rotation, position);
+                break;
+            case 1:
+                draw_scrap2(view_matrix, &rotation, position);
+                break;
+            case 2:
+                draw_scrap3(view_matrix, &rotation, position);
+                break;
+            case 3:
+                draw_asteroid(view_matrix, &rotation, position);
+                break;
         }
     }
 }
@@ -581,7 +672,7 @@ static void draw_texts() {
     char buffer[64];
     int16_t x;
     uint8_t i;
-    uint32_t t = timing.current_tick >> 3;
+    uint32_t t = timing.current_tick >> 4;
 
     for (i = 0; i < 64; ++i) {
         uint32_t t_step;
@@ -657,6 +748,17 @@ static void draw() {
     }
 }
 
+static void init_mesh_adjustment_matrix(fx4x3_t* m, const fx3_t* size, const fx3_t* center) {
+    fx4x3_identity(m);
+    m->m[FX4X3_00] = size->x << 4;
+    m->m[FX4X3_11] = size->y << 4;
+    m->m[FX4X3_22] = size->z << 4;
+    m->m[FX4X3_30] = center->x >> 4;
+    m->m[FX4X3_31] = center->y >> 4;
+    m->m[FX4X3_32] = center->z >> 4;
+
+}
+
 void main() {
     aw_assert(ship_num_indices % 3 == 0);
     aw_assert(sizeof(ship_vertices) == ship_num_vertices * 3);
@@ -665,29 +767,11 @@ void main() {
 
     //
 
-    fx4x3_identity(&ship_mesh_adjust_matrix);
-    ship_mesh_adjust_matrix.m[FX4X3_00] = ship_size.x << 1;
-    ship_mesh_adjust_matrix.m[FX4X3_11] = ship_size.y << 1;
-    ship_mesh_adjust_matrix.m[FX4X3_22] = ship_size.z << 1;
-    ship_mesh_adjust_matrix.m[FX4X3_30] = ship_center.x >> 7;
-    ship_mesh_adjust_matrix.m[FX4X3_31] = ship_center.y >> 7;
-    ship_mesh_adjust_matrix.m[FX4X3_32] = ship_center.z >> 7;
-
-    fx4x3_identity(&asteroid_mesh_adjust_matrix);
-    asteroid_mesh_adjust_matrix.m[FX4X3_00] = asteroid_size.x << 1;
-    asteroid_mesh_adjust_matrix.m[FX4X3_11] = asteroid_size.y << 1;
-    asteroid_mesh_adjust_matrix.m[FX4X3_22] = asteroid_size.z << 1;
-    asteroid_mesh_adjust_matrix.m[FX4X3_30] = asteroid_center.x >> 7;
-    asteroid_mesh_adjust_matrix.m[FX4X3_31] = asteroid_center.y >> 7;
-    asteroid_mesh_adjust_matrix.m[FX4X3_32] = asteroid_center.z >> 7;
-
-    fx4x3_identity(&scrap_mesh_adjust_matrix);
-    scrap_mesh_adjust_matrix.m[FX4X3_00] = scrap_size.x << 1;
-    scrap_mesh_adjust_matrix.m[FX4X3_11] = scrap_size.y << 1;
-    scrap_mesh_adjust_matrix.m[FX4X3_22] = scrap_size.z << 1;
-    scrap_mesh_adjust_matrix.m[FX4X3_30] = scrap_center.x >> 7;
-    scrap_mesh_adjust_matrix.m[FX4X3_31] = scrap_center.y >> 7;
-    scrap_mesh_adjust_matrix.m[FX4X3_32] = scrap_center.z >> 7;
+    init_mesh_adjustment_matrix(&ship_mesh_adjust_matrix, &ship_size, &ship_center);
+    init_mesh_adjustment_matrix(&asteroid_mesh_adjust_matrix, &asteroid_size, &asteroid_center);
+    init_mesh_adjustment_matrix(&scrap_mesh_adjust_matrix, &scrap_size, &scrap_center);
+    init_mesh_adjustment_matrix(&scrap2_mesh_adjust_matrix, &scrap2_size, &scrap2_center);
+    init_mesh_adjustment_matrix(&scrap3_mesh_adjust_matrix, &scrap3_size, &scrap3_center);
 
     init_stars();
     init_debris();
@@ -755,8 +839,8 @@ void main() {
         update_input();
         update();
 
-#if 0
-        _fmemset(dblbuf, 0, SCREEN_NUM_PIXELS);
+#if !defined(INLINE_ASM)
+        _fmemset(dblbuf, 0x08, SCREEN_NUM_PIXELS);
 #else
         __asm {
             push es
@@ -784,7 +868,7 @@ void main() {
         if (vsync && !is_benchmark_running())
             vga_wait_for_retrace();
 
-#if 0
+#if !defined(INLINE_ASM)
         _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);
 #else
         __asm {

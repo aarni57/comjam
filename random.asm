@@ -55,7 +55,7 @@ fx_random_signed_one_:
 random_debris_x_:
     update
     fx_signed_one
-    sar eax, 5
+    sar eax, 1
     result_to_dx_ax
     ret
 

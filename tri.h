@@ -16,8 +16,6 @@
 #define RASTER_SUBPIXEL_MASK    15
 #define RASTER_SUBPIXEL_HALF    8
 
-#define INLINE_ASM
-
 //
 
 static inline void tris(
@@ -31,7 +29,9 @@ static inline void tris(
     int32_t dy0, dy1, dy2;
     int32_t eo0, eo1, eo2; // Offsets for empty testing
     int32_t c0, c1, c2;
+#if defined(INLINE_ASM)
     uint32_t color32;
+#endif
     uint8_t color;
 
     uint8_t __far* screen_row;
@@ -367,6 +367,7 @@ static inline void tris(
 
         //
 
+#if defined(INLINE_ASM)
         __asm {
             movzx eax, color
             mov ah, al
@@ -375,6 +376,7 @@ static inline void tris(
             mov al, color
             mov color32, eax
         }
+#endif
 
         screen_row = dblbuf + mul_by_screen_stride(min_y);
         screen_row_end = dblbuf + mul_by_screen_stride(max_y);

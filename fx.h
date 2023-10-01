@@ -20,7 +20,7 @@
 #define fx_clamp clamp32
 
 static inline fx_t fx_abs(fx_t x) {
-#if 0
+#if !defined(INLINE_ASM)
     return x < 0 ? -x : x;
 #else
     __asm {
@@ -36,8 +36,9 @@ static inline fx_t fx_abs(fx_t x) {
 #endif
 }
 
+#if !defined(INLINE_ASM)
+
 static inline fx_t fx_mul(fx_t x, fx_t y) {
-#if 0
     int32_t a, c;
     uint32_t b, d;
 
@@ -48,7 +49,15 @@ static inline fx_t fx_mul(fx_t x, fx_t y) {
     d = y & 0xffff;
 
     return ((a * c) << 16) + a * d + b * c + ((b * d) >> 16);
-#else
+}
+
+static inline fx_t fx_mul_ptr(const fx_t* x, const fx_t* y) {
+    return fx_mul(*x, *y);
+}
+
+#elif 0
+
+static inline fx_t fx_mul(fx_t x, fx_t y) {
     __asm {
         .386
         mov eax, x
@@ -59,12 +68,16 @@ static inline fx_t fx_mul(fx_t x, fx_t y) {
     }
 
     return x;
-#endif
 }
 
-#if 0
-#define fx_pow2(x) fx_mul(x, x)
 #else
+fx_t fx_mul(fx_t x, fx_t y);
+fx_t fx_mul_ptr(const fx_t* x, const fx_t* y);
+#endif
+
+#if !defined(INLINE_ASM)
+#   define fx_pow2(x) fx_mul(x, x)
+#elif 0
 static inline fx_t fx_pow2(fx_t x) {
     __asm {
         .386
@@ -77,9 +90,11 @@ static inline fx_t fx_pow2(fx_t x) {
 
     return x;
 }
+#else
+fx_t fx_pow2(fx_t x);
 #endif
 
-#if 0
+#if !defined(INLINE_ASM)
 static inline fx_t fx_lerp(fx_t a, fx_t b, fx_t t) {
     return a + fx_mul(b - a, t);
 }
@@ -104,7 +119,7 @@ static inline fx_t fx_lerp(fx_t x, fx_t y, fx_t t) {
 #endif
 
 static inline fx_t fx_div(fx_t x, fx_t y) {
-#if 0
+#if !defined(INLINE_ASM)
     uint32_t remainder, divider, quotient, bit;
     fx_t result;
 
@@ -175,8 +190,8 @@ static inline fx_t fx_div(fx_t x, fx_t y) {
 #endif
 }
 
-#if 0
-#define fx_rcp(x) fx_div(FX_ONE, x)
+#if !defined(INLINE_ASM)
+#   define fx_rcp(x) fx_div(FX_ONE, x)
 #else
 static inline fx_t fx_rcp(fx_t x) {
     __asm {
@@ -295,8 +310,8 @@ static inline fx_t fx_cos(fx_t x) {
 
 static inline fx2_t fx2_rotate(fx2_t v, fx_t c, fx_t s) {
     fx2_t r;
-    r.x = fx_mul(v.x, c) - fx_mul(v.y, s);
-    r.y = fx_mul(v.y, c) + fx_mul(v.x, s);
+    r.x = fx_mul_ptr(&v.x, &c) - fx_mul_ptr(&v.y, &s);
+    r.y = fx_mul_ptr(&v.y, &c) + fx_mul_ptr(&v.x, &s);
     return r;
 }
 
@@ -354,13 +369,13 @@ static inline fx_t fx3_length_rcp(const fx3_t* v) {
 }
 
 static inline fx_t fx3_dot(const fx3_t* a, const fx3_t* b) {
-    return fx_mul(a->x, b->x) + fx_mul(a->y, b->y) + fx_mul(a->z, b->z);
+    return fx_mul_ptr(&a->x, &b->x) + fx_mul_ptr(&a->y, &b->y) + fx_mul_ptr(&a->z, &b->z);
 }
 
 static inline void fx3_cross(fx3_t* r, const fx3_t* a, const fx3_t* b) {
-    r->x = fx_mul(a->y, b->z) - fx_mul(a->z, b->y);
-    r->y = fx_mul(a->z, b->x) - fx_mul(a->x, b->z);
-    r->z = fx_mul(a->x, b->y) - fx_mul(a->y, b->x);
+    r->x = fx_mul_ptr(&a->y, &b->z) - fx_mul_ptr(&a->z, &b->y);
+    r->y = fx_mul_ptr(&a->z, &b->x) - fx_mul_ptr(&a->x, &b->z);
+    r->z = fx_mul_ptr(&a->x, &b->y) - fx_mul_ptr(&a->y, &b->x);
 }
 
 static inline void fx3_mul(fx3_t* r, const fx3_t* a, fx_t b) {
@@ -378,16 +393,16 @@ static inline void fx3_mul_ip(fx3_t* a, fx_t b) {
 
 static inline void fx3_mul_cw(fx3_t* r, const fx3_t* a, const fx3_t* b) {
     // Component-wise
-    r->x = fx_mul(a->x, b->x);
-    r->y = fx_mul(a->y, b->y);
-    r->z = fx_mul(a->z, b->z);
+    r->x = fx_mul_ptr(&a->x, &b->x);
+    r->y = fx_mul_ptr(&a->y, &b->y);
+    r->z = fx_mul_ptr(&a->z, &b->z);
 }
 
 static inline void fx3_mul_cw_ip(fx3_t* a, const fx3_t* b) {
     // Component-wise, in-place
-    a->x = fx_mul(a->x, b->x);
-    a->y = fx_mul(a->y, b->y);
-    a->z = fx_mul(a->z, b->z);
+    a->x = fx_mul_ptr(&a->x, &b->x);
+    a->y = fx_mul_ptr(&a->y, &b->y);
+    a->z = fx_mul_ptr(&a->z, &b->z);
 }
 
 static inline void fx3_normalize(fx3_t* r, const fx3_t* a) {
@@ -462,22 +477,22 @@ static inline void fx_quat_rotation_axis_angle(fx4_t* q,
 }
 
 static inline void fx_quat_mul(fx4_t* r, const fx4_t* a, const fx4_t* b) {
-    r->x =  fx_mul(a->x, b->w) +
-            fx_mul(a->y, b->z) -
-            fx_mul(a->z, b->y) +
-            fx_mul(a->w, b->x);
-    r->y = -fx_mul(a->x, b->z) +
-            fx_mul(a->y, b->w) +
-            fx_mul(a->z, b->x) +
-            fx_mul(a->w, b->y);
-    r->z =  fx_mul(a->x, b->y) -
-            fx_mul(a->y, b->x) +
-            fx_mul(a->z, b->w) +
-            fx_mul(a->w, b->z);
-    r->w = -fx_mul(a->x, b->x) -
-            fx_mul(a->y, b->y) -
-            fx_mul(a->z, b->z) +
-            fx_mul(a->w, b->w);
+    r->x =  fx_mul_ptr(&a->x, &b->w) +
+            fx_mul_ptr(&a->y, &b->z) -
+            fx_mul_ptr(&a->z, &b->y) +
+            fx_mul_ptr(&a->w, &b->x);
+    r->y = -fx_mul_ptr(&a->x, &b->z) +
+            fx_mul_ptr(&a->y, &b->w) +
+            fx_mul_ptr(&a->z, &b->x) +
+            fx_mul_ptr(&a->w, &b->y);
+    r->z =  fx_mul_ptr(&a->x, &b->y) -
+            fx_mul_ptr(&a->y, &b->x) +
+            fx_mul_ptr(&a->z, &b->w) +
+            fx_mul_ptr(&a->w, &b->z);
+    r->w = -fx_mul_ptr(&a->x, &b->x) -
+            fx_mul_ptr(&a->y, &b->y) -
+            fx_mul_ptr(&a->z, &b->z) +
+            fx_mul_ptr(&a->w, &b->w);
 }
 
 //
@@ -545,17 +560,17 @@ static inline void fx4x3_set_translation(fx4x3_t* m, const fx3_t* translation) {
 
 static inline void fx4x3_rotation_translation(fx4x3_t* m, const fx4_t* q,
     const fx3_t* translation) {
-    fx_t xx = fx_mul(q->x, q->x);
-    fx_t xy = fx_mul(q->x, q->y);
-    fx_t xz = fx_mul(q->x, q->z);
-    fx_t xw = fx_mul(q->x, q->w);
+    fx_t xx = fx_pow2(q->x);
+    fx_t xy = fx_mul_ptr(&q->x, &q->y);
+    fx_t xz = fx_mul_ptr(&q->x, &q->z);
+    fx_t xw = fx_mul_ptr(&q->x, &q->w);
 
-    fx_t yy = fx_mul(q->y, q->y);
-    fx_t yz = fx_mul(q->y, q->z);
-    fx_t yw = fx_mul(q->y, q->w);
+    fx_t yy = fx_pow2(q->y);
+    fx_t yz = fx_mul_ptr(&q->y, &q->z);
+    fx_t yw = fx_mul_ptr(&q->y, &q->w);
 
-    fx_t zz = fx_mul(q->z, q->z);
-    fx_t zw = fx_mul(q->z, q->w);
+    fx_t zz = fx_pow2(q->z);
+    fx_t zw = fx_mul_ptr(&q->z, &q->w);
 
     m->m[FX4X3_00] = fx_clamp(FX_ONE - 2 * (yy + zz), -FX_ONE, FX_ONE);
     m->m[FX4X3_01] = fx_clamp(         2 * (xy - zw), -FX_ONE, FX_ONE);
@@ -576,7 +591,7 @@ static inline void fx4x3_rotation_translation(fx4x3_t* m, const fx4_t* q,
 
 static inline void fx_transform_point_ip(const fx4x3_t* m, fx3_t* v) {
     int32_t x, y, z;
-#if 0
+#if !defined(INLINE_ASM)
     x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]) + m->m[FX4X3_30];
     y = fx_mul(v->x, m->m[FX4X3_10]) + fx_mul(v->y, m->m[FX4X3_11]) + fx_mul(v->z, m->m[FX4X3_12]) + m->m[FX4X3_31];
     z = fx_mul(v->x, m->m[FX4X3_20]) + fx_mul(v->y, m->m[FX4X3_21]) + fx_mul(v->z, m->m[FX4X3_22]) + m->m[FX4X3_32];
@@ -671,7 +686,7 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
 
 static inline void fx_transform_vector_ip(const fx4x3_t* m, fx3_t* v) {
     int32_t x, y, z;
-#if 0
+#if !defined(INLINE_ASM)
     x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]);
     y = fx_mul(v->x, m->m[FX4X3_10]) + fx_mul(v->y, m->m[FX4X3_11]) + fx_mul(v->z, m->m[FX4X3_12]);
     z = fx_mul(v->x, m->m[FX4X3_20]) + fx_mul(v->y, m->m[FX4X3_21]) + fx_mul(v->z, m->m[FX4X3_22]);
@@ -753,43 +768,77 @@ static inline void fx_transform_vector(fx3_t* r, const fx4x3_t* m, const fx3_t* 
     fx_transform_vector_ip(m, r);
 }
 
+static const fx3_t world_up = { 0, 0, FX_ONE };
+
+static inline void fx4x3_look_at(fx4x3_t* m, const fx3_t* eye, const fx3_t* target) {
+    fx3_t view_forward, view_right, view_up, view_translation;
+
+    fx3_sub(&view_forward, target, eye);
+    fx3_normalize_ip(&view_forward);
+
+    fx3_cross(&view_right, &view_forward, &world_up);
+    fx3_normalize_ip(&view_right);
+
+    fx3_cross(&view_up, &view_right, &view_forward);
+    fx3_normalize_ip(&view_up);
+
+    m->m[FX4X3_00] = view_right.x;
+    m->m[FX4X3_01] = view_right.y;
+    m->m[FX4X3_02] = view_right.z;
+
+    m->m[FX4X3_10] = view_up.x;
+    m->m[FX4X3_11] = view_up.y;
+    m->m[FX4X3_12] = view_up.z;
+
+    m->m[FX4X3_20] = view_forward.x;
+    m->m[FX4X3_21] = view_forward.y;
+    m->m[FX4X3_22] = view_forward.z;
+
+    fx3_neg(&view_translation, eye);
+    fx_transform_vector_ip(m, &view_translation);
+
+    m->m[FX4X3_30] = view_translation.x;
+    m->m[FX4X3_31] = view_translation.y;
+    m->m[FX4X3_32] = view_translation.z;
+}
+
 static inline void fx4x3_mul(fx4x3_t* r, const fx4x3_t* a, const fx4x3_t* b) {
     r->m[FX4X3_00] =
-        fx_mul(a->m[FX4X3_00], b->m[FX4X3_00]) +
-        fx_mul(a->m[FX4X3_01], b->m[FX4X3_10]) +
-        fx_mul(a->m[FX4X3_02], b->m[FX4X3_20]);
+        fx_mul_ptr(&a->m[FX4X3_00], &b->m[FX4X3_00]) +
+        fx_mul_ptr(&a->m[FX4X3_01], &b->m[FX4X3_10]) +
+        fx_mul_ptr(&a->m[FX4X3_02], &b->m[FX4X3_20]);
     r->m[FX4X3_01] =
-        fx_mul(a->m[FX4X3_00], b->m[FX4X3_01]) +
-        fx_mul(a->m[FX4X3_01], b->m[FX4X3_11]) +
-        fx_mul(a->m[FX4X3_02], b->m[FX4X3_21]);
+        fx_mul_ptr(&a->m[FX4X3_00], &b->m[FX4X3_01]) +
+        fx_mul_ptr(&a->m[FX4X3_01], &b->m[FX4X3_11]) +
+        fx_mul_ptr(&a->m[FX4X3_02], &b->m[FX4X3_21]);
     r->m[FX4X3_02] =
-        fx_mul(a->m[FX4X3_00], b->m[FX4X3_02]) +
-        fx_mul(a->m[FX4X3_01], b->m[FX4X3_12]) +
-        fx_mul(a->m[FX4X3_02], b->m[FX4X3_22]);
+        fx_mul_ptr(&a->m[FX4X3_00], &b->m[FX4X3_02]) +
+        fx_mul_ptr(&a->m[FX4X3_01], &b->m[FX4X3_12]) +
+        fx_mul_ptr(&a->m[FX4X3_02], &b->m[FX4X3_22]);
     r->m[FX4X3_10] =
-        fx_mul(a->m[FX4X3_10], b->m[FX4X3_00]) +
-        fx_mul(a->m[FX4X3_11], b->m[FX4X3_10]) +
-        fx_mul(a->m[FX4X3_12], b->m[FX4X3_20]);
+        fx_mul_ptr(&a->m[FX4X3_10], &b->m[FX4X3_00]) +
+        fx_mul_ptr(&a->m[FX4X3_11], &b->m[FX4X3_10]) +
+        fx_mul_ptr(&a->m[FX4X3_12], &b->m[FX4X3_20]);
     r->m[FX4X3_11] =
-        fx_mul(a->m[FX4X3_10], b->m[FX4X3_01]) +
-        fx_mul(a->m[FX4X3_11], b->m[FX4X3_11]) +
-        fx_mul(a->m[FX4X3_12], b->m[FX4X3_21]);
+        fx_mul_ptr(&a->m[FX4X3_10], &b->m[FX4X3_01]) +
+        fx_mul_ptr(&a->m[FX4X3_11], &b->m[FX4X3_11]) +
+        fx_mul_ptr(&a->m[FX4X3_12], &b->m[FX4X3_21]);
     r->m[FX4X3_12] =
-        fx_mul(a->m[FX4X3_10], b->m[FX4X3_02]) +
-        fx_mul(a->m[FX4X3_11], b->m[FX4X3_12]) +
-        fx_mul(a->m[FX4X3_12], b->m[FX4X3_22]);
+        fx_mul_ptr(&a->m[FX4X3_10], &b->m[FX4X3_02]) +
+        fx_mul_ptr(&a->m[FX4X3_11], &b->m[FX4X3_12]) +
+        fx_mul_ptr(&a->m[FX4X3_12], &b->m[FX4X3_22]);
     r->m[FX4X3_20] =
-        fx_mul(a->m[FX4X3_20], b->m[FX4X3_00]) +
-        fx_mul(a->m[FX4X3_21], b->m[FX4X3_10]) +
-        fx_mul(a->m[FX4X3_22], b->m[FX4X3_20]);
+        fx_mul_ptr(&a->m[FX4X3_20], &b->m[FX4X3_00]) +
+        fx_mul_ptr(&a->m[FX4X3_21], &b->m[FX4X3_10]) +
+        fx_mul_ptr(&a->m[FX4X3_22], &b->m[FX4X3_20]);
     r->m[FX4X3_21] =
-        fx_mul(a->m[FX4X3_20], b->m[FX4X3_01]) +
-        fx_mul(a->m[FX4X3_21], b->m[FX4X3_11]) +
-        fx_mul(a->m[FX4X3_22], b->m[FX4X3_21]);
+        fx_mul_ptr(&a->m[FX4X3_20], &b->m[FX4X3_01]) +
+        fx_mul_ptr(&a->m[FX4X3_21], &b->m[FX4X3_11]) +
+        fx_mul_ptr(&a->m[FX4X3_22], &b->m[FX4X3_21]);
     r->m[FX4X3_22] =
-        fx_mul(a->m[FX4X3_20], b->m[FX4X3_02]) +
-        fx_mul(a->m[FX4X3_21], b->m[FX4X3_12]) +
-        fx_mul(a->m[FX4X3_22], b->m[FX4X3_22]);
+        fx_mul_ptr(&a->m[FX4X3_20], &b->m[FX4X3_02]) +
+        fx_mul_ptr(&a->m[FX4X3_21], &b->m[FX4X3_12]) +
+        fx_mul_ptr(&a->m[FX4X3_22], &b->m[FX4X3_22]);
 
     fx_transform_point((fx3_t*)&r->m[FX4X3_30], a, (const fx3_t*)&b->m[FX4X3_30]);
 }

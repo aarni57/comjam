@@ -3,8 +3,8 @@
 #define scrap_num_vertices 28
 #define scrap_num_indices 156
 
-const fx3_t scrap_center = { 197, 234, -197 };
-const fx3_t scrap_size = { 4603, 1030, 4603 };
+const fx3_t scrap_center = { 237, 234, -236 };
+const fx3_t scrap_size = { 5523, 1236, 5524 };
 
 const uint16_t scrap_indices[] = {
 0, 1, 2, 2, 4, 0, 6, 7, 8, 8, 3, 6, 12, 1, 0, 0,
