@@ -439,7 +439,7 @@ static void draw_stars(const fx4x3_t* view_matrix) {
             case 1: {
                 if (x >= 0 && x <= SCREEN_X_MAX && y >= 0 && y <= SCREEN_Y_MAX) {
                     uint16_t offset = mul_by_screen_stride(y) + x;
-                    dblbuf[offset] = 96;
+                    dblbuf[offset] = 117;
                 }
 
                 break;
@@ -762,7 +762,7 @@ void main() {
             push es
             push edi
 
-            xor eax, eax
+            mov eax, 0x08080808
 
             mov edx, dblbuf
             movzx edi, dx

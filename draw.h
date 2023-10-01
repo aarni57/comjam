@@ -49,13 +49,11 @@ static inline void project_to_screen(fx3_t* v) {
         imul ecx
 
         imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
+        shrd eax, edx, 16
 
-        sar edx, 12
-        add edx, 2560
-        mov [si], edx
+        sar eax, 12
+        add eax, 2560
+        mov [si], eax
 
         // y
         mov eax, 4[si]
@@ -63,14 +61,12 @@ static inline void project_to_screen(fx3_t* v) {
         imul ecx
 
         imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
+        shrd eax, edx, 16
 
-        sar edx, 12
-        neg edx
-        add edx, 1600
-        mov 4[si], edx
+        sar eax, 12
+        neg eax
+        add eax, 1600
+        mov 4[si], eax
     }
 #endif
 }

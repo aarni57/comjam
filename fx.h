@@ -52,12 +52,10 @@ static inline fx_t fx_mul(fx_t x, fx_t y) {
     __asm {
         .386
         mov eax, x
-        mov ebx, y
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov x, edx
+        mov edx, y
+        imul edx
+        shrd eax, edx, 16
+        mov x, eax
     }
 
     return x;
@@ -71,12 +69,10 @@ static inline fx_t fx_pow2(fx_t x) {
     __asm {
         .386
         mov eax, x
-        mov ebx, eax
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov x, edx
+        mov edx, eax
+        imul edx
+        shrd eax, edx, 16
+        mov x, eax
     }
 
     return x;
@@ -97,12 +93,10 @@ static inline fx_t fx_lerp(fx_t x, fx_t y, fx_t t) {
 
         mov ecx, t
         imul ecx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
+        shrd eax, edx, 16
 
-        add edx, ebx
-        mov x, edx
+        add eax, ebx
+        mov x, eax
     }
 
     return x;
@@ -172,8 +166,8 @@ static inline fx_t fx_div(fx_t x, fx_t y) {
         mov ax, dx
         sar edx, 16
         sal eax, 16
-        mov ecx, y
-        idiv ecx
+        mov ebx, y
+        idiv ebx
         mov x, eax
     }
 
@@ -456,7 +450,8 @@ static inline void fx4_normalize_ip(fx4_t* v) {
 
 //
 
-static inline void fx_quat_rotation_axis_angle(fx4_t* q, const fx3_t* axis, fx_t angle) {
+static inline void fx_quat_rotation_axis_angle(fx4_t* q, 
+    const fx3_t* axis, fx_t angle) {
     fx_t half_angle = angle >> 1;
     fx_t factor = fx_sin(half_angle);
     q->x = fx_mul(axis->x, factor);
@@ -467,10 +462,22 @@ static inline void fx_quat_rotation_axis_angle(fx4_t* q, const fx3_t* axis, fx_t
 }
 
 static inline void fx_quat_mul(fx4_t* r, const fx4_t* a, const fx4_t* b) {
-    r->x =  fx_mul(a->x, b->w) + fx_mul(a->y, b->z) - fx_mul(a->z, b->y) + fx_mul(a->w, b->x);
-    r->y = -fx_mul(a->x, b->z) + fx_mul(a->y, b->w) + fx_mul(a->z, b->x) + fx_mul(a->w, b->y);
-    r->z =  fx_mul(a->x, b->y) - fx_mul(a->y, b->x) + fx_mul(a->z, b->w) + fx_mul(a->w, b->z);
-    r->w = -fx_mul(a->x, b->x) - fx_mul(a->y, b->y) - fx_mul(a->z, b->z) + fx_mul(a->w, b->w);
+    r->x =  fx_mul(a->x, b->w) +
+            fx_mul(a->y, b->z) -
+            fx_mul(a->z, b->y) +
+            fx_mul(a->w, b->x);
+    r->y = -fx_mul(a->x, b->z) +
+            fx_mul(a->y, b->w) +
+            fx_mul(a->z, b->x) +
+            fx_mul(a->w, b->y);
+    r->z =  fx_mul(a->x, b->y) -
+            fx_mul(a->y, b->x) +
+            fx_mul(a->z, b->w) +
+            fx_mul(a->w, b->z);
+    r->w = -fx_mul(a->x, b->x) -
+            fx_mul(a->y, b->y) -
+            fx_mul(a->z, b->z) +
+            fx_mul(a->w, b->w);
 }
 
 //
@@ -581,111 +588,75 @@ static inline void fx_transform_point_ip(const fx4x3_t* m, fx3_t* v) {
 
         mov eax, [si]
         mov ecx, eax
-        mov ebx, [di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov x, edx
+        mov edx, [di]
+        imul edx
+        shrd eax, edx, 16
+        mov x, eax
 
         mov eax, ecx
-        mov ebx, 12[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov y, edx
+        mov edx, 12[di]
+        imul edx
+        shrd eax, edx, 16
+        mov y, eax
 
         mov eax, ecx
-        mov ebx, 24[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov z, edx
+        mov edx, 24[di]
+        imul edx
+        shrd eax, edx, 16
+        mov z, eax
 
         //
 
         mov eax, 4[si]
         mov ecx, eax
-        mov ebx, 4[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, x
-        add eax, edx
-        mov x, eax
+        mov edx, 4[di]
+        imul edx
+        shrd eax, edx, 16
+        add x, eax
 
         mov eax, ecx
-        mov ebx, 16[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, y
-        add eax, edx
-        mov y, eax
+        mov edx, 16[di]
+        imul edx
+        shrd eax, edx, 16
+        add y, eax
 
         mov eax, ecx
-        mov ebx, 28[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, z
-        add eax, edx
-        mov z, eax
+        mov edx, 28[di]
+        imul edx
+        shrd eax, edx, 16
+        add z, eax
 
         //
 
         mov eax, 8[si]
         mov ecx, eax
-        mov ebx, 8[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, x
-        add eax, edx
-        mov x, eax
+        mov edx, 8[di]
+        imul edx
+        shrd eax, edx, 16
+        add x, eax
 
         mov eax, ecx
-        mov ebx, 20[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, y
-        add eax, edx
-        mov y, eax
+        mov edx, 20[di]
+        imul edx
+        shrd eax, edx, 16
+        add y, eax
 
         mov eax, ecx
-        mov ebx, 32[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, z
-        add eax, edx
-        mov z, eax
+        mov edx, 32[di]
+        imul edx
+        shrd eax, edx, 16
+        add z, eax
 
         //
 
-        mov eax, x
         mov edx, 36[di]
-        add eax, edx
-        mov x, eax
+        add x, edx
 
-        mov eax, y
         mov edx, 40[di]
-        add eax, edx
-        mov y, eax
+        add y, edx
 
-        mov eax, z
         mov edx, 44[di]
-        add eax, edx
-        mov z, eax
+        add z, edx
     }
 #endif
     v->x = x;
@@ -712,94 +683,64 @@ static inline void fx_transform_vector_ip(const fx4x3_t* m, fx3_t* v) {
 
         mov eax, [si]
         mov ecx, eax
-        mov ebx, [di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov x, edx
+        mov edx, [di]
+        imul edx
+        shrd eax, edx, 16
+        mov x, eax
 
         mov eax, ecx
-        mov ebx, 12[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov y, edx
+        mov edx, 12[di]
+        imul edx
+        shrd eax, edx, 16
+        mov y, eax
 
         mov eax, ecx
-        mov ebx, 24[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov z, edx
+        mov edx, 24[di]
+        imul edx
+        shrd eax, edx, 16
+        mov z, eax
 
         //
 
         mov eax, 4[si]
         mov ecx, eax
-        mov ebx, 4[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, x
-        add eax, edx
-        mov x, eax
+        mov edx, 4[di]
+        imul edx
+        shrd eax, edx, 16
+        add x, eax
 
         mov eax, ecx
-        mov ebx, 16[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, y
-        add eax, edx
-        mov y, eax
+        mov edx, 16[di]
+        imul edx
+        shrd eax, edx, 16
+        add y, eax
 
         mov eax, ecx
-        mov ebx, 28[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, z
-        add eax, edx
-        mov z, eax
+        mov edx, 28[di]
+        imul edx
+        shrd eax, edx, 16
+        add z, eax
 
         //
 
         mov eax, 8[si]
         mov ecx, eax
-        mov ebx, 8[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, x
-        add eax, edx
-        mov x, eax
+        mov edx, 8[di]
+        imul edx
+        shrd eax, edx, 16
+        add x, eax
 
         mov eax, ecx
-        mov ebx, 20[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, y
-        add eax, edx
-        mov y, eax
+        mov edx, 20[di]
+        imul edx
+        shrd eax, edx, 16
+        add y, eax
 
         mov eax, ecx
-        mov ebx, 32[di]
-        imul ebx
-        sar eax, 16
-        sal edx, 16
-        mov dx, ax
-        mov eax, z
-        add eax, edx
-        mov z, eax
+        mov edx, 32[di]
+        imul edx
+        shrd eax, edx, 16
+        add z, eax
     }
 #endif
     v->x = x;
