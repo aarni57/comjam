@@ -8,6 +8,9 @@ timer_init_:
     push bx
     push dx
     push es
+
+    mov [update_func], ax
+
     mov ax, 351ch
     int 21h
     mov [prev_isr], bx
@@ -16,7 +19,7 @@ timer_init_:
     cli
 
     mov ax, 251ch
-    mov dx, timer_isr   ; ds is already equal to cs
+    mov dx, timer_isr ; ds is already equal to cs
     int 21h
 
     ; Set to 1165.215 Hz
@@ -35,9 +38,6 @@ timer_init_:
     pop dx
     pop bx
     ret
-
-    align 4
-prev_isr dd 0
 
     global timer_cleanup_
 timer_cleanup_:
@@ -68,5 +68,18 @@ timer_cleanup_:
     extern _timer_ticks
 
 timer_isr:
-    add dword [cs:_timer_ticks], 1
+    push eax
+    inc dword [cs:_timer_ticks]
+    mov eax, [cs:_timer_ticks]
+    and eax, 0x3f
+    jnz skip_update
+    call [cs:update_func]
+    skip_update:
+    pop eax
     iret
+
+    align 2
+update_func dw 0
+
+    align 4
+prev_isr dd 0

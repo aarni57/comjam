@@ -152,11 +152,16 @@ static void opl_done() {
     opl = 0;
 }
 
-static void opl_play() {
+static void opl_stop() {
     if (!opl)
         return;
 
     opl_write(0xb0, 0); // Voice off
+}
+
+static void opl_play() {
+    if (!opl)
+        return;
 
     opl_write_fast(0x20, 0x01); // Set the modulator's multiple
     opl_write_fast(0x40, 0x06); // Set the modulator's level

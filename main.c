@@ -47,17 +47,15 @@ static uint8_t __far* dblbuf = NULL;
 
 //
 
-#if 0
 static int opl = 0;
 #include "opl.h"
-#endif
 
 //
 
 volatile uint32_t timer_ticks;
 
 // defined in timer.asm
-void timer_init();
+void timer_init(void (*update_func)());
 void timer_cleanup();
 
 static inline uint32_t read_timer_ticks() {
@@ -254,12 +252,6 @@ static void update_input() {
             case 27:
                 quit = 1;
                 break;
-
-#if 0
-            case 'a':
-                opl_play();
-                break;
-#endif
 
             case '1':
                 stars_enabled ^= 1;
@@ -769,7 +761,17 @@ static void init_mesh_adjustment_matrix(fx4x3_t* m, const fx3_t* size, const fx3
     m->m[FX4X3_30] = center->x >> 4;
     m->m[FX4X3_31] = center->y >> 4;
     m->m[FX4X3_32] = center->z >> 4;
+}
 
+static int foo = 0;
+
+static void music_update() {
+    foo++;
+    if ((foo & 0x1f) == 0) {
+        opl_play();
+    } else if ((foo & 0x1f) == 0x10) {
+        opl_stop();
+    }
 }
 
 void main() {
@@ -807,11 +809,9 @@ void main() {
     if (!sort_buffer)
         goto exit;
 
-#if 0
     opl_init();
-#endif
 
-    timer_init();
+    timer_init(music_update);
 
     vga_set_mode(0x13);
 
@@ -918,11 +918,10 @@ exit:
     _ffree(draw_buffer);
     _ffree(sort_buffer);
     timer_cleanup();
-#if 0
     opl_done();
-#endif
     vga_set_mode(0x3);
     putz(exit_message);
     set_text_cursor(1, 0);
     kb_clear_buffer();
+    printf("%d\n", foo);
 }
