@@ -66,20 +66,22 @@ timer_cleanup_:
     ret
 
     extern _timer_ticks
+    extern _music_update_func
 
 timer_isr:
+    cli
     push eax
     inc dword [cs:_timer_ticks]
     mov eax, [cs:_timer_ticks]
-    and eax, 0x3f
+    and eax, 0xf
     jnz skip_update
-    call [cs:update_func]
+    call [cs:_music_update_func]
+    ;call [cs:update_func]
     skip_update:
     pop eax
+    sti
     iret
-
-    align 2
-update_func dw 0
 
     align 4
 prev_isr dd 0
+update_func dw 0

@@ -37,6 +37,7 @@
 #include "scrap.h"
 #include "scrap2.h"
 #include "scrap3.h"
+#include "song.h"
 
 //
 
@@ -188,7 +189,7 @@ static void init_debris() {
     }
 }
 
-void restart() {
+static void restart() {
     timing.current_frame = 0;
     timing.tick_accumulator = 0;
     timing.current_tick = 0;
@@ -251,6 +252,11 @@ static void update_input() {
         switch (ch) {
             case 27:
                 quit = 1;
+                break;
+
+            case 'a':
+                opl_stop(0);
+                opl_play(0, 100, 30, 127);
                 break;
 
             case '1':
@@ -686,7 +692,7 @@ static void draw_texts() {
             break;
 
         if (i == 0) {
-            t_step = 10;
+            t_step = 20;
         } else {
             t_step = TEXT[i] == ' ' ? 2 : 1;
         }
@@ -701,9 +707,11 @@ static void draw_texts() {
 
     buffer[i] = 0;
 
-    x = 4;
-    x = draw_text(buffer, x, 200 - (6 + 4), 4);
-    draw_text_cursor(x, 200 - (6 + 4), 7);
+    x = 6;
+    x = draw_text(buffer, x, 200 - (6 + 6), 4);
+
+    if ((t >> 1) & 1)
+        draw_text_cursor(x, 200 - (6 + 6), 7);
 }
 
 static void draw() {
@@ -763,15 +771,116 @@ static void init_mesh_adjustment_matrix(fx4x3_t* m, const fx3_t* size, const fx3
     m->m[FX4X3_32] = center->z >> 4;
 }
 
-static int foo = 0;
+static inline int is_valid_song_event(const song_event_t* e) {
+    return e->time_delta != 65535;
+}
 
-static void music_update() {
-    foo++;
-    if ((foo & 0x1f) == 0) {
-        opl_play();
-    } else if ((foo & 0x1f) == 0x10) {
-        opl_stop();
+#define NUM_MIDI_CHANNELS 16
+#define MAX_MIDI_CHANNEL_NOTES_PLAYING 4
+
+typedef struct midi_channel_state_t {
+    uint8_t program;
+    uint8_t notes[MAX_MIDI_CHANNEL_NOTES_PLAYING];
+    uint8_t opl_channels[MAX_MIDI_CHANNEL_NOTES_PLAYING];
+} midi_channel_state_t;
+
+void (*music_update_func)();
+
+void music_update() {
+#if 0
+    static uint16_t counter = 0, inst = 0, note = 0;
+    counter++;
+    if (counter == 16) {
+        counter = 0;
+
+        opl_stop(1);
+        opl_stop(2);
+        opl_stop(3);
+
+        opl_play(1, inst, note + 0, 64);
+        opl_play(2, inst, note + 3, 64);
+        opl_play(3, inst, note + 7, 64);
+
+        inst++;
+        if (inst == 128)
+            inst = 0;
     }
+#else
+    static uint16_t tick_accumulator = 0;
+    static uint16_t next_event_delta = 0;
+    static uint16_t event_index = 0;
+    static uint8_t used_opl_channels[NUM_OPL_CHANNELS] = { 0 };
+    static midi_channel_state_t midi_channel_states[NUM_MIDI_CHANNELS] = { 0 };
+
+    midi_channel_state_t* m;
+    const song_event_t* e;
+
+    tick_accumulator += 429;
+
+    while (tick_accumulator >= next_event_delta) {
+        tick_accumulator -= next_event_delta;
+
+        e = &song_events[event_index];
+
+        aw_assert(e->channel < NUM_MIDI_CHANNELS);
+        m = &midi_channel_states[e->channel];
+
+        switch (e->velocity) {
+            case 0: {
+                uint8_t i;
+                for (i = 0; i < MAX_MIDI_CHANNEL_NOTES_PLAYING; ++i) {
+                    if (m->opl_channels[i] && m->notes[i] == e->note) {
+                        uint8_t ch = m->opl_channels[i];
+                        aw_assert(ch < NUM_OPL_CHANNELS);
+                        opl_stop(ch);
+                        used_opl_channels[ch] = 0;
+                        m->opl_channels[i] = 0;
+                        break;
+                    }
+                }
+
+                break;
+            }
+
+            case 255: {
+                m->program = e->note;
+                break;
+            }
+
+            default: {
+                uint8_t i, opl_channel = 1;
+
+                while (used_opl_channels[opl_channel] &&
+                    opl_channel < NUM_OPL_CHANNELS) {
+                    opl_channel++;
+                }
+
+                if (opl_channel == NUM_OPL_CHANNELS)
+                    break;
+
+                for (i = 0; i < MAX_MIDI_CHANNEL_NOTES_PLAYING; ++i) {
+                    if (m->opl_channels[i] == 0) {
+                        opl_play(opl_channel, m->program, e->note, e->velocity);
+
+                        m->notes[i] = e->note;
+                        m->opl_channels[i] = opl_channel;
+                        used_opl_channels[opl_channel] = 1;
+                        break;
+                    }
+                }
+
+                break;
+            }
+        }
+
+        event_index++;
+        if (!is_valid_song_event(&song_events[event_index])) {
+            event_index = 0;
+        }
+
+        next_event_delta = song_events[event_index].time_delta;
+    }
+#endif
 }
 
 void main() {
@@ -811,6 +920,7 @@ void main() {
 
     opl_init();
 
+    music_update_func = music_update;
     timer_init(music_update);
 
     vga_set_mode(0x13);
@@ -923,5 +1033,4 @@ exit:
     putz(exit_message);
     set_text_cursor(1, 0);
     kb_clear_buffer();
-    printf("%d\n", foo);
 }

@@ -1,7 +1,14 @@
 #ifndef OPL_H
 #define OPL_H
 
+#include "opl_bank.h"
+
 #define OPL_BASE 0x388
+#define NUM_OPL_CHANNELS 9
+
+static const opl_channel_offsets[NUM_OPL_CHANNELS] = {
+    0x0, 0x1, 0x2, 0x8, 0x9, 0xa, 0x10, 0x11, 0x12
+};
 
 static uint8_t opl_register_states[256] = { 0 };
 
@@ -41,47 +48,47 @@ static inline void opl_write_fast(uint8_t reg, uint8_t v) {
 #else
 
 static inline void opl_wait_index() {
-    inp(opl_base); inp(opl_base); inp(opl_base);
-    inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
 }
 
 static inline void opl_wait_data() {
-    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
-    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
-    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
-    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
-    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
-    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
-    inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base); inp(opl_base);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
+    inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE); inp(OPL_BASE);
 }
 
 static inline void opl_write(uint8_t reg, uint8_t v) {
-    opl_register_cache[reg] = v;
+    opl_register_states[reg] = v;
 
-    outp(opl_base, reg);
+    outp(OPL_BASE, reg);
     opl_wait_index();
-    outp(opl_base + 1, v);
+    outp(OPL_BASE + 1, v);
     opl_wait_data();
 
 #if 0
     if (opl == 3) {
-        outp(opl_base + 2, reg);
+        outp(OPL_BASE + 2, reg);
         opl_wait_index();
-        outp(opl_base + 2 + 1, v);
+        outp(OPL_BASE + 2 + 1, v);
         opl_wait_data();
     }
 #endif
 }
 
 static inline void opl_write_fast(uint8_t reg, uint8_t v) {
-    if (opl_register_cache[reg] == v)
+    if (opl_register_states[reg] == v)
         return;
 
-    opl_register_cache[reg] = v;
+    opl_register_states[reg] = v;
 
-    outp(opl_base, reg);
+    outp(OPL_BASE, reg);
     opl_wait_index();
-    outp(opl_base + 1, v);
+    outp(OPL_BASE + 1, v);
     opl_wait_data();
 }
 #endif
@@ -152,27 +159,98 @@ static void opl_done() {
     opl = 0;
 }
 
-static void opl_stop() {
+static void opl_stop(uint8_t channel) {
     if (!opl)
         return;
 
-    opl_write(0xb0, 0); // Voice off
+    opl_write(0xb0 + channel, 0); // Voice off
 }
 
-static void opl_play() {
+static const uint16_t opl_freq_table[12] = {
+    342, 363, 385, 408, 432, 458, 485, 514, 544, 577, 611, 647
+};
+
+static const uint8_t opl_attenuation_table[128] = {
+    0x3F, 0x38, 0x30, 0x2B, 0x28, 0x25, 0x23, 0x21,
+    0x20, 0x1E, 0x1D, 0x1C, 0x1B, 0x1A, 0x19, 0x18,
+    0x17, 0x17, 0x16, 0x16, 0x15, 0x14, 0x14, 0x13,
+    0x13, 0x12, 0x12, 0x11, 0x11, 0x11, 0x10, 0x10,
+    0x0F, 0x0F, 0x0F, 0x0E, 0x0E, 0x0E, 0x0D, 0x0D,
+    0x0D, 0x0D, 0x0C, 0x0C, 0x0C, 0x0C, 0x0B, 0x0B,
+    0x0B, 0x0B, 0x0A, 0x0A, 0x0A, 0x0A, 0x09, 0x09,
+    0x09, 0x09, 0x09, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x06, 0x06,
+    0x06, 0x06, 0x06, 0x06, 0x05, 0x05, 0x05, 0x05,
+    0x05, 0x05, 0x05, 0x04, 0x04, 0x04, 0x04, 0x04,
+    0x04, 0x04, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+    0x03, 0x03, 0x03, 0x02, 0x02, 0x02, 0x02, 0x02, 
+    0x02, 0x02, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static void opl_play(uint8_t channel, uint8_t program, uint8_t note, uint8_t velocity) {
+    aw_assert(channel < NUM_OPL_CHANNELS && program < 128 && note < 128 &&
+        velocity < 128);
+
     if (!opl)
         return;
 
-    opl_write_fast(0x20, 0x01); // Set the modulator's multiple
-    opl_write_fast(0x40, 0x06); // Set the modulator's level
-    opl_write_fast(0x60, 0x11); // Modulator attack & decay
-    opl_write_fast(0x80, 0x11); // Modulator sustain & release
-    opl_write_fast(0xa0, 0x28); // Set voice frequency's LSB
-    opl_write_fast(0x23, 0x00); // Set the carrier's multiple
-    opl_write_fast(0x43, 0x00); // Set the carrier to maximum volume
-    opl_write_fast(0x63, 0x11); // Carrier attack & decay
-    opl_write_fast(0x83, 0x11); // Carrier sustain & release
-    opl_write(0xb0, 0x20 | 0x10); // Turn the voice on; set the octave and freq MSB
+    {
+        uint8_t ch_offset;
+        const uint8_t* inst_data = opl_bank[program];
+
+        ch_offset = opl_channel_offsets[channel];
+        opl_write_fast(0x20 + ch_offset, inst_data[0]);
+        opl_write_fast(0x23 + ch_offset, inst_data[1]);
+
+        {
+            uint8_t attenuation, attenuation0, attenuation1;
+
+            attenuation = opl_attenuation_table[velocity];
+
+            if (inst_data[10] & 1) { // If AM
+                attenuation0 = (inst_data[2] & 0x3f) + attenuation;
+                if (attenuation0 > 0x3f)
+                    attenuation0 = 0x3f;
+                opl_write_fast(0x40 + ch_offset, attenuation0 | (inst_data[2] & 0xc0));
+            } else {
+                opl_write_fast(0x40 + ch_offset, inst_data[2]);
+            }
+
+            attenuation1 = (inst_data[3] & 0x3f) + attenuation;
+            if (attenuation1 > 0x3f)
+                attenuation1 = 0x3f;
+
+            opl_write_fast(0x43 + ch_offset, attenuation1 | (inst_data[3] & 0xc0));
+        }
+
+        opl_write_fast(0x60 + ch_offset, inst_data[4]);
+        opl_write_fast(0x63 + ch_offset, inst_data[5]);
+        opl_write_fast(0x80 + ch_offset, inst_data[6]);
+        opl_write_fast(0x83 + ch_offset, inst_data[7]);
+        opl_write_fast(0xe0 + ch_offset, inst_data[8]);
+        opl_write_fast(0xe3 + ch_offset, inst_data[9]);
+        opl_write_fast(0xc0 + channel, inst_data[10]);
+    }
+
+    {
+        uint8_t octave = 0;
+        uint16_t f;
+
+        while (note >= 12) {
+            note -= 12;
+            octave++;
+        }
+
+        f = opl_freq_table[note];
+
+        // Set voice frequency's LSB
+        opl_write_fast(0xa0 + channel, f & 0xff);
+
+        // Turn the voice on; set the octave and freq MSB
+        opl_write(0xb0 + channel, 0x20 | (octave << 2) | (f >> 8));
+    }
 }
 
 #endif
