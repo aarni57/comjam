@@ -10,7 +10,7 @@ static const opl_channel_offsets[NUM_OPL_CHANNELS] = {
     0x0, 0x1, 0x2, 0x8, 0x9, 0xa, 0x10, 0x11, 0x12
 };
 
-static uint8_t opl_register_states[256] = { 0 };
+static volatile uint8_t opl_register_states[256] = { 0 };
 
 #if 1
 
@@ -29,7 +29,7 @@ void opl_write_asm(uint8_t reg, uint8_t v);
 "wait_data:" \
 "in al, dx" \
 "loop wait_data" \
-modify [cx dx] \
+modify [al bl cx dx] \
 parm [al] [bl];
 
 static inline void opl_write(uint8_t reg, uint8_t v) {

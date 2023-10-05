@@ -183,12 +183,8 @@ static int16_t __far* draw_buffer = NULL;
 static uint32_t __far* sort_buffer = NULL;
 
 static void draw_mesh(const fx4x3_t* model_view_matrix,
-    uint16_t num_indices,
-    uint16_t num_vertices,
-    const uint16_t* indices,
-    const uint8_t* face_colors,
-    const int8_t* vertices) {
-
+    uint16_t num_indices, uint16_t num_vertices,
+    const uint16_t* indices, const uint8_t* face_colors, const int8_t* vertices) {
     aw_assert(num_vertices <= TM_BUFFER_MAX_VERTICES);
     aw_assert(num_indices % 3 == 0);
     aw_assert(draw_buffer_num_triangles + num_indices / 3 <= DRAW_BUFFER_MAX_TRIANGLES);
@@ -226,6 +222,10 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
             b = *indices++;
             c = *indices++;
             face_color = *face_colors++;
+
+            aw_assert(a < num_vertices);
+            aw_assert(b < num_vertices);
+            aw_assert(c < num_vertices);
 
             a = (a << 1) + a;
             z0 = tm_buffer[a + 2];

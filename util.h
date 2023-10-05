@@ -4,7 +4,7 @@
 #include <conio.h>
 #include <stdint.h>
 
-int kb_clear_buffer();
+void kb_clear_buffer();
 #pragma aux kb_clear_buffer =   \
 "mov ax, 0x0c00" \
 "int 0x21" \

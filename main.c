@@ -56,7 +56,7 @@ static int opl = 0;
 volatile uint32_t timer_ticks;
 
 // defined in timer.asm
-void timer_init(void (*update_func)());
+void timer_init();
 void timer_cleanup();
 
 static inline uint32_t read_timer_ticks() {
@@ -74,14 +74,15 @@ static inline uint32_t read_timer_ticks() {
 static const char* exit_message = "JEMM unloaded... Not really :-)";
 
 static int quit = 0;
-static int vsync = 0;
+static int vsync = 1;
 static int help = 0;
 static int draw_mode = 0;
-static int stars_enabled = 1;
-static int debris_enabled = 1;
-static int ship_enabled = 1;
+static int stars_enabled = 0;
+static int debris_enabled = 0;
+static int ship_enabled = 0;
 static int texts_enabled = 1;
 static int fps_enabled = 1;
+static volatile int music_enabled = 0;
 
 static int benchmark_timer = 0;
 static uint32_t benchmark_start_tick = 0;
@@ -277,6 +278,10 @@ static void update_input() {
 
             case '5':
                 fps_enabled ^= 1;
+                break;
+
+            case '6':
+                music_enabled ^= 1;
                 break;
 
             case 'b':
@@ -775,17 +780,6 @@ static inline int is_valid_song_event(const song_event_t* e) {
     return e->time_delta != 65535;
 }
 
-#define NUM_MIDI_CHANNELS 16
-#define MAX_MIDI_CHANNEL_NOTES_PLAYING 4
-
-typedef struct midi_channel_state_t {
-    uint8_t program;
-    uint8_t notes[MAX_MIDI_CHANNEL_NOTES_PLAYING];
-    uint8_t opl_channels[MAX_MIDI_CHANNEL_NOTES_PLAYING];
-} midi_channel_state_t;
-
-void (*music_update_func)();
-
 void music_update() {
 #if 0
     static uint16_t counter = 0, inst = 0, note = 0;
@@ -809,66 +803,30 @@ void music_update() {
     static uint16_t tick_accumulator = 0;
     static uint16_t next_event_delta = 0;
     static uint16_t event_index = 0;
-    static uint8_t used_opl_channels[NUM_OPL_CHANNELS] = { 0 };
-    static midi_channel_state_t midi_channel_states[NUM_MIDI_CHANNELS] = { 0 };
-
-    midi_channel_state_t* m;
+    static uint8_t channel_programs[NUM_OPL_CHANNELS] = { 0 };
     const song_event_t* e;
 
-    tick_accumulator += 429;
+    tick_accumulator += 6866;
 
     while (tick_accumulator >= next_event_delta) {
         tick_accumulator -= next_event_delta;
 
         e = &song_events[event_index];
-
-        aw_assert(e->channel < NUM_MIDI_CHANNELS);
-        m = &midi_channel_states[e->channel];
+        aw_assert(e->channel < NUM_OPL_CHANNELS);
 
         switch (e->velocity) {
             case 0: {
-                uint8_t i;
-                for (i = 0; i < MAX_MIDI_CHANNEL_NOTES_PLAYING; ++i) {
-                    if (m->opl_channels[i] && m->notes[i] == e->note) {
-                        uint8_t ch = m->opl_channels[i];
-                        aw_assert(ch < NUM_OPL_CHANNELS);
-                        opl_stop(ch);
-                        used_opl_channels[ch] = 0;
-                        m->opl_channels[i] = 0;
-                        break;
-                    }
-                }
-
+                opl_stop(e->channel);
                 break;
             }
 
             case 255: {
-                m->program = e->note;
+                channel_programs[e->channel] = e->note;
                 break;
             }
 
             default: {
-                uint8_t i, opl_channel = 1;
-
-                while (used_opl_channels[opl_channel] &&
-                    opl_channel < NUM_OPL_CHANNELS) {
-                    opl_channel++;
-                }
-
-                if (opl_channel == NUM_OPL_CHANNELS)
-                    break;
-
-                for (i = 0; i < MAX_MIDI_CHANNEL_NOTES_PLAYING; ++i) {
-                    if (m->opl_channels[i] == 0) {
-                        opl_play(opl_channel, m->program, e->note, e->velocity);
-
-                        m->notes[i] = e->note;
-                        m->opl_channels[i] = opl_channel;
-                        used_opl_channels[opl_channel] = 1;
-                        break;
-                    }
-                }
-
+                opl_play(e->channel, channel_programs[e->channel], e->note, e->velocity);
                 break;
             }
         }
@@ -881,6 +839,12 @@ void music_update() {
         next_event_delta = song_events[event_index].time_delta;
     }
 #endif
+    timer_ticks++;
+}
+
+void timer_update() {
+    if (music_enabled)
+        music_update();
 }
 
 void main() {
@@ -920,8 +884,7 @@ void main() {
 
     opl_init();
 
-    music_update_func = music_update;
-    timer_init(music_update);
+    timer_init();
 
     vga_set_mode(0x13);
 

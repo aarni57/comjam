@@ -5,20 +5,17 @@ segment _TEXT class=CODE
 
     global timer_init_
 timer_init_:
-    push bx
-    push dx
     push es
+    push ds
 
-    mov [update_func], ax
-
-    mov ax, 351ch
+    mov ax, 3508h
     int 21h
     mov [prev_isr], bx
     mov [prev_isr + 2], es
 
     cli
 
-    mov ax, 251ch
+    mov ax, 2508h
     mov dx, timer_isr ; ds is already equal to cs
     int 21h
 
@@ -34,21 +31,20 @@ timer_init_:
 
     sti
 
+    pop ds
     pop es
-    pop dx
-    pop bx
     ret
 
     global timer_cleanup_
 timer_cleanup_:
-    push dx
+    push es
     push ds
 
     cli
 
     mov dx, [prev_isr]
     mov ds, [prev_isr + 2]
-    mov ax, 251ch
+    mov ax, 2508h
     int 21h
 
     mov dx, 0x43
@@ -62,26 +58,60 @@ timer_cleanup_:
     sti
 
     pop ds
-    pop dx
+    pop es
     ret
 
     extern _timer_ticks
-    extern _music_update_func
+    extern timer_update_
+
+timer_isr2:
+    inc dword [cs:_timer_ticks]
+    push ax
+    mov al, 0x20
+    out 0x20, al
+    pop ax
+    iret
 
 timer_isr:
-    cli
     push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    push sp
+    push bp
+    push ds
+    push es
+    push fs
+    push gs
+    push ss
+
     inc dword [cs:_timer_ticks]
+
     mov eax, [cs:_timer_ticks]
-    and eax, 0xf
+    and eax, 0x1f
     jnz skip_update
-    call [cs:_music_update_func]
-    ;call [cs:update_func]
-    skip_update:
+    call timer_update_
+skip_update:
+
+    mov al, 0x20
+    out 0x20, al
+
+    pop ss
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    pop bp
+    pop sp
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
     pop eax
-    sti
     iret
 
     align 4
 prev_isr dd 0
-update_func dw 0
