@@ -5,6 +5,7 @@
 
 #define OPL_BASE 0x388
 #define NUM_OPL_CHANNELS 9
+#define OPL_SFX_CHANNEL 8
 
 static const opl_channel_offsets[NUM_OPL_CHANNELS] = {
     0x0, 0x1, 0x2, 0x8, 0x9, 0xa, 0x10, 0x11, 0x12
@@ -197,17 +198,15 @@ static void opl_play(uint8_t channel, uint8_t program, uint8_t note, uint8_t vel
         return;
 
     {
-        uint8_t ch_offset;
         const uint8_t* inst_data = opl_bank[program];
+        uint8_t ch_offset = opl_channel_offsets[channel];
 
-        ch_offset = opl_channel_offsets[channel];
         opl_write_fast(0x20 + ch_offset, inst_data[0]);
         opl_write_fast(0x23 + ch_offset, inst_data[1]);
 
         {
-            uint8_t attenuation, attenuation0, attenuation1;
-
-            attenuation = opl_attenuation_table[velocity];
+            uint8_t attenuation0, attenuation1;
+            uint8_t attenuation = opl_attenuation_table[velocity];
 
             if (inst_data[10] & 1) { // If AM
                 attenuation0 = (inst_data[2] & 0x3f) + attenuation;

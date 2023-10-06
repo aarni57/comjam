@@ -53,6 +53,8 @@ static int opl = 0;
 
 //
 
+static int timer_initialized = 0;
+
 volatile uint32_t timer_ticks;
 
 // defined in timer.asm
@@ -74,15 +76,15 @@ static inline uint32_t read_timer_ticks() {
 static const char* exit_message = "JEMM unloaded... Not really :-)";
 
 static int quit = 0;
-static int vsync = 1;
+static int vsync = 0;
 static int help = 0;
 static int draw_mode = 0;
-static int stars_enabled = 0;
-static int debris_enabled = 0;
-static int ship_enabled = 0;
+static int stars_enabled = 1;
+static int debris_enabled = 1;
+static int ship_enabled = 1;
 static int texts_enabled = 1;
 static int fps_enabled = 1;
-static volatile int music_enabled = 0;
+static volatile int music_enabled = 1;
 
 static int benchmark_timer = 0;
 static uint32_t benchmark_start_tick = 0;
@@ -256,8 +258,8 @@ static void update_input() {
                 break;
 
             case 'a':
-                opl_stop(0);
-                opl_play(0, 100, 30, 127);
+                opl_stop(OPL_SFX_CHANNEL);
+                opl_play(OPL_SFX_CHANNEL, 100, 30, 127);
                 break;
 
             case '1':
@@ -297,8 +299,11 @@ static void update_input() {
                 draw_mode ^= 1;
                 break;
 
-            default:
+            case 'h':
                 help ^= 1;
+                break;
+
+            default:
                 break;
         }
     }
@@ -715,7 +720,7 @@ static void draw_texts() {
     x = 6;
     x = draw_text(buffer, x, 200 - (6 + 6), 4);
 
-    if ((t >> 1) & 1)
+    if (((t >> 1) & 1) == 0)
         draw_text_cursor(x, 200 - (6 + 6), 7);
 }
 
@@ -776,74 +781,58 @@ static void init_mesh_adjustment_matrix(fx4x3_t* m, const fx3_t* size, const fx3
     m->m[FX4X3_32] = center->z >> 4;
 }
 
-static inline int is_valid_song_event(const song_event_t* e) {
-    return e->time_delta != 65535;
+static inline int is_song_event_valid(const song_event_t* e) {
+    return e->channel != 255;
 }
 
-void music_update() {
-#if 0
-    static uint16_t counter = 0, inst = 0, note = 0;
-    counter++;
-    if (counter == 16) {
-        counter = 0;
+static inline int is_song_event_delta_time(const song_event_t* e) {
+    return e->channel & 0x80;
+}
 
-        opl_stop(1);
-        opl_stop(2);
-        opl_stop(3);
+static inline uint32_t unpack_song_event_delta_time(const song_event_t* e) {
+    return ((uint32_t)e->program << 16) | ((uint32_t)e->note << 8) | e->velocity;
+}
 
-        opl_play(1, inst, note + 0, 64);
-        opl_play(2, inst, note + 3, 64);
-        opl_play(3, inst, note + 7, 64);
-
-        inst++;
-        if (inst == 128)
-            inst = 0;
-    }
-#else
-    static uint16_t tick_accumulator = 0;
-    static uint16_t next_event_delta = 0;
+static void music_update() {
+    static uint32_t time_accumulator = 0;
+    static uint32_t next_delta_time = 100000UL;
     static uint16_t event_index = 0;
-    static uint8_t channel_programs[NUM_OPL_CHANNELS] = { 0 };
     const song_event_t* e;
 
-    tick_accumulator += 6866;
+    time_accumulator += 13731;
 
-    while (tick_accumulator >= next_event_delta) {
-        tick_accumulator -= next_event_delta;
+    while (time_accumulator >= next_delta_time) {
+        time_accumulator -= next_delta_time;
 
         e = &song_events[event_index];
-        aw_assert(e->channel < NUM_OPL_CHANNELS);
 
-        switch (e->velocity) {
-            case 0: {
-                opl_stop(e->channel);
-                break;
-            }
+        if (is_song_event_delta_time(e)) {
+            next_delta_time = unpack_song_event_delta_time(e);
+        } else {
+            next_delta_time = 0;
 
-            case 255: {
-                channel_programs[e->channel] = e->note;
-                break;
-            }
+            switch (e->velocity) {
+                case 0: {
+                    opl_stop(e->channel);
+                    break;
+                }
 
-            default: {
-                opl_play(e->channel, channel_programs[e->channel], e->note, e->velocity);
-                break;
+                default: {
+                    opl_play(e->channel, e->program, e->note, e->velocity);
+                    break;
+                }
             }
         }
 
         event_index++;
-        if (!is_valid_song_event(&song_events[event_index])) {
+        if (!is_song_event_valid(&song_events[event_index])) {
             event_index = 0;
         }
-
-        next_event_delta = song_events[event_index].time_delta;
     }
-#endif
-    timer_ticks++;
 }
 
 void timer_update() {
-    if (music_enabled)
+    if (music_enabled && opl)
         music_update();
 }
 
@@ -884,7 +873,7 @@ void main() {
 
     opl_init();
 
-    timer_init();
+    timer_init(); timer_initialized = 1;
 
     vga_set_mode(0x13);
 
@@ -990,7 +979,7 @@ exit:
     _ffree(tm_buffer);
     _ffree(draw_buffer);
     _ffree(sort_buffer);
-    timer_cleanup();
+    if (timer_initialized) timer_cleanup();
     opl_done();
     vga_set_mode(0x3);
     putz(exit_message);

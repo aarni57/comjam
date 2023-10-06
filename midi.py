@@ -4,20 +4,35 @@ import umidiparser
 
 name = "song"
 
-midifile = umidiparser.MidiFile("aim.mid")
+midifile = umidiparser.MidiFile("/Users/aarni/Library/CloudStorage/Dropbox/Test MIDI/aim.mid")
 
 print("Ticks per quarter: " + str(midifile.miditicks_per_quarter))
 
-def adjust_velocity(v, volume, expression):
-    r = int(v * volume / 127 * expression / 127 + 0.5)
+def adjust_velocity(v, volume):
+    r = int(v * volume / 127 + 0.5)
     if r > 127:
         r = 127
     return r
 
+def write_delta_time(f, t):
+    if t < 10000:
+        return t
+
+    if t >= (1 << 24):
+        print("Too long delta time")
+        exit()
+
+    a = ((t >> 16) & 0xff)
+    b = ((t >> 8) & 0xff)
+    c = (t & 0xff)
+    f.write("{ 128, " + str(a) + ", " + str(b) + ", " + str(c) + " },\n")
+
+    return 0
+
 with open(name + ".h", "w") as f:
     f.write("typedef struct song_event_t {\n")
-    f.write("    uint16_t time_delta;\n")
     f.write("    uint8_t channel;\n")
+    f.write("    uint8_t program;\n")
     f.write("    uint8_t note;\n")
     f.write("    uint8_t velocity;\n")
     f.write("} song_event_t;\n\n")
@@ -36,7 +51,7 @@ with open(name + ".h", "w") as f:
     opl_notes = [-1 for i in range(num_opl_channels)]
     opl_midi_channels = [-1 for i in range(num_opl_channels)]
 
-    midi_programs = [-1 for i in range(num_midi_channels)]
+    midi_programs = [0 for i in range(num_midi_channels)]
 
     #
 
@@ -68,11 +83,8 @@ with open(name + ".h", "w") as f:
 
     #
 
-    time_divider = 4
-
     num_note_ons = 0
     num_note_offs = 0
-    num_program_changes = 0
     num_cc_changes = 0
 
     for event in midifile:
@@ -84,45 +96,39 @@ with open(name + ".h", "w") as f:
                 opl_channel_off_timers[i] += event.delta_us
 
         if hasattr(event, "channel") and event.channel != 10:
-            time_delta = delta_us_accumulator // time_divider
-            if time_delta >= 65536:
-                print("Too long event time delta")
-                abort()
-
             if event.status == umidiparser.NOTE_ON and event.velocity > 0:
                 opl_channel = find_free_opl_channel(midi_programs[event.channel])
                 if opl_channel == -1:
                     print("No free OPL channels")
                     continue
 
-                if event.note < 12:
+                note = event.note
+                if note >= 12:
+                    note -= 12
+                else:
                     print("Warning: Low note")
 
-                note = event.note - 12
                 program = midi_programs[event.channel]
-                adjusted_velocity = adjust_velocity(event.velocity, channel_volumes[event.channel], channel_expressions[event.channel])
+                adjusted_velocity = adjust_velocity(event.velocity, channel_volumes[event.channel])
 
                 opl_channel_off_timers[opl_channel] = 0
                 opl_notes[opl_channel] = note
                 opl_midi_channels[opl_channel] = event.channel
+                opl_programs[opl_channel] = program
 
-                if opl_programs[opl_channel] != program:
-                    opl_programs[opl_channel] = program
-                    f.write("{ " + str(time_delta) + ", " + str(opl_channel) + ", " + str(program) + ", 255 },\n")
-                    f.write("{ 0, " + str(opl_channel) + ", " + str(note) + ", " + str(adjusted_velocity) + " },\n")
-                    num_program_changes += 1
-                else:
-                    f.write("{ " + str(time_delta) + ", " + str(opl_channel) + ", " + str(note) + ", " + str(adjusted_velocity) + " },\n")
+                delta_us_accumulator = write_delta_time(f, delta_us_accumulator)
 
-                delta_us_accumulator -= time_delta * time_divider
+                f.write("{ " + str(opl_channel) + ", " + str(program) + ", " + str(note) + ", " + str(adjusted_velocity) + " },\n")
+
                 num_note_ons += 1
 
             elif event.status == umidiparser.NOTE_OFF or (event.status == umidiparser.NOTE_ON and event.velocity == 0):
 
-                if event.note < 12:
+                note = event.note
+                if note >= 12:
+                    note -= 12
+                else:
                     print("Warning: Low note")
-
-                note = event.note - 12
 
                 opl_channel = -1
                 for i in range(num_opl_channels):
@@ -135,9 +141,10 @@ with open(name + ".h", "w") as f:
 
                 opl_channel_off_timers[opl_channel] = 1
 
-                f.write("{ " + str(time_delta) + ", " + str(opl_channel) + ", 0, 0 },\n")
+                delta_us_accumulator = write_delta_time(f, delta_us_accumulator)
 
-                delta_us_accumulator -= time_delta * time_divider
+                f.write("{ " + str(opl_channel) + ", 0, 0, 0 },\n")
+
                 num_note_offs += 1
 
             elif event.status == umidiparser.PROGRAM_CHANGE:
@@ -153,10 +160,9 @@ with open(name + ".h", "w") as f:
                     channel_expressions[event.channel] = event.value
                     num_cc_changes += 1
 
-    f.write("{ 65535, 0, 0, 0 }\n")
+    f.write("{ 255, 0, 0, 0 }\n")
     f.write("};\n")
 
     print("Num note ons: " + str(num_note_ons))
     print("Num note offs: " + str(num_note_offs))
-    print("Num program changes: " + str(num_program_changes))
     print("Num control changes: " + str(num_cc_changes))

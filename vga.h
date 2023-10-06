@@ -22,6 +22,7 @@ void vga_set_mode(uint8_t mode);
 #pragma aux vga_set_mode = \
 "xor ah, ah" \
 "int 0x10" \
+modify [ax] \
 parm [al];
 
 static inline void vga_set_palette(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {

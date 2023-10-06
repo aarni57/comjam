@@ -5,6 +5,7 @@ segment _TEXT class=CODE
 
     global timer_init_
 timer_init_:
+    push ax
     push es
     push ds
 
@@ -33,11 +34,13 @@ timer_init_:
 
     pop ds
     pop es
+    pop ax
     ret
 
     global timer_cleanup_
 timer_cleanup_:
-    push es
+    push ax
+    push dx
     push ds
 
     cli
@@ -58,60 +61,48 @@ timer_cleanup_:
     sti
 
     pop ds
-    pop es
+    pop dx
+    pop ax
     ret
 
     extern _timer_ticks
     extern timer_update_
 
-timer_isr2:
-    inc dword [cs:_timer_ticks]
-    push ax
-    mov al, 0x20
-    out 0x20, al
-    pop ax
-    iret
-
 timer_isr:
+    inc dword [cs:_timer_ticks]
+
     push eax
-    push ebx
-    push ecx
-    push edx
-    push esi
-    push edi
-    push sp
-    push bp
+    mov eax, [cs:_timer_ticks]
+    and eax, 0xf
+    jnz skip_update
+
+    pushad
     push ds
     push es
-    push fs
-    push gs
-    push ss
 
-    inc dword [cs:_timer_ticks]
+    mov ax, cs
+    mov ds, ax
+    mov es, ax
 
-    mov eax, [cs:_timer_ticks]
-    and eax, 0x1f
-    jnz skip_update
     call timer_update_
-skip_update:
 
-    mov al, 0x20
-    out 0x20, al
-
-    pop ss
-    pop gs
-    pop fs
     pop es
     pop ds
-    pop bp
-    pop sp
-    pop edi
-    pop esi
-    pop edx
-    pop ecx
-    pop ebx
+    popad
+
+skip_update:
+    dec word [cs:clock_counter]
+    jz clock_update
+    mov al, 0x20
+    out 0x20, al
     pop eax
     iret
 
+clock_update:
+    mov word [cs:clock_counter], 0x40
+    pop eax
+    jmp far [cs:prev_isr]
+
     align 4
 prev_isr dd 0
+clock_counter dw 0x40
