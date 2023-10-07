@@ -47,4 +47,16 @@ static inline void draw_box_outline(uint16_t x0, uint16_t y0, uint16_t x1, uint1
     }
 }
 
+static inline void draw_cross(uint16_t x, uint16_t y, uint8_t c) {
+    uint8_t __far* tgt = dblbuf + mul_by_screen_stride(y) + x;
+    tgt[-SCREEN_STRIDE * 3] = c;
+    tgt[-SCREEN_STRIDE * 2] = c;
+    tgt[-3] = c;
+    tgt[-2] = c;
+    tgt[2] = c;
+    tgt[3] = c;
+    tgt[SCREEN_STRIDE * 2] = c;
+    tgt[SCREEN_STRIDE * 3] = c;
+}
+
 #endif

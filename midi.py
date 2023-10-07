@@ -121,15 +121,18 @@ with open(name + ".h", "w") as f:
                 opl_channel_off_timers[opl_channel] = 0
                 opl_notes[opl_channel] = note
                 opl_midi_channels[opl_channel] = event.channel
-                opl_programs[opl_channel] = program
 
                 if delta_us_accumulator >= delta_time_threshold:
                     writing_index = write_delta_time(f, delta_us_accumulator, writing_index)
                     delta_us_accumulator = 0
                     num_delta_times += 1
 
+                if opl_programs[opl_channel] != program:
+                    opl_programs[opl_channel] = program
+                    writing_index = write_value(f, 0x20 | opl_channel, writing_index)
+                    writing_index = write_value(f, program, writing_index)
+
                 writing_index = write_value(f, opl_channel, writing_index)
-                writing_index = write_value(f, program, writing_index)
                 writing_index = write_value(f, note, writing_index)
                 writing_index = write_value(f, adjusted_velocity, writing_index)
 
@@ -159,12 +162,11 @@ with open(name + ".h", "w") as f:
                     delta_us_accumulator = 0
                     num_delta_times += 1
 
-                writing_index = write_value(f, 0x40 + opl_channel, writing_index)
+                writing_index = write_value(f, 0x10 + opl_channel, writing_index)
 
                 num_note_offs += 1
 
             elif event.status == umidiparser.PROGRAM_CHANGE:
-                #f.write("{ " + str(time_delta) + ", " + str(event.channel) + ", " + str(event.program) + ", 255 },\n")
                 midi_programs[event.channel] = event.program
 
             elif event.status == umidiparser.CONTROL_CHANGE:
@@ -178,6 +180,8 @@ with open(name + ".h", "w") as f:
 
     writing_index = write_value(f, 0xff, writing_index)
     f.write("\n};\n")
+
+    print("Num bytes: " + str(writing_index))
 
 print("Num note ons: " + str(num_note_ons))
 print("Num note offs: " + str(num_note_offs))

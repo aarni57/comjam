@@ -811,7 +811,7 @@ static void draw() {
             }
         }
 
-        draw_darkened_box(8, 100, 140, 200 - 8);
+        draw_darkened_box(8, 120, 120, 200 - 8);
     }
 }
 
@@ -829,6 +829,7 @@ static void music_update() {
     static uint32_t time_accumulator = 0;
     static uint32_t next_delta_time = 100000UL;
     static uint16_t event_index = 0;
+    static uint8_t channel_programs[NUM_OPL_MUSIC_CHANNELS] = { 0 };
     uint8_t v;
 
 #if defined(INLINE_ASM)
@@ -852,15 +853,17 @@ static void music_update() {
             v2 = song_events[event_index++];
             v3 = song_events[event_index++];
             next_delta_time = ((uint32_t)(v & ~0x80) << 16) | ((uint32_t)v2 << 8) | v3;
-        } else if (v & 0x40) {
-            opl_stop(v & ~0x40);
+        } else if (v & 0x20) {
+            channel_programs[v & ~0x20] = song_events[event_index++];
+        } else if (v & 0x10) {
+            opl_stop(v & ~0x10);
         } else {
-            uint8_t program, note, velocity;
-            program = song_events[event_index++];
+            uint8_t note, velocity;
+            aw_assert(v < NUM_OPL_MUSIC_CHANNELS);
             note = song_events[event_index++];
             velocity = song_events[event_index++];
             velocity = ((uint16_t)velocity * music_volume) >> 8;
-            opl_play(v, program, note, velocity);
+            opl_play(v, channel_programs[v], note, velocity);
         }
     }
 }
