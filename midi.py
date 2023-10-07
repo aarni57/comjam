@@ -19,25 +19,34 @@ def adjust_velocity(v, volume):
         r = 127
     return r
 
-def write_delta_time(f, t):
+def write_value(f, v, writing_index):
+    if writing_index != 0:
+        if (writing_index & 15) == 15:
+            f.write(",\n")
+        else:
+            f.write(", ")
+
+    f.write(str(v))
+
+    return writing_index + 1
+
+def write_delta_time(f, t, writing_index):
     a = t >> 16
-    if a > 0xff:
+    if a >= 0x7f: # 255 is reserved for termination
         print("Too long delta time")
         exit()
 
     b = ((t >> 8) & 0xff)
     c = (t & 0xff)
-    f.write("{ 128, " + str(a) + ", " + str(b) + ", " + str(c) + " },\n")
+    writing_index = write_value(f, 0x80 | a, writing_index)
+    writing_index = write_value(f, b, writing_index)
+    writing_index = write_value(f, c, writing_index)
+    return writing_index
 
 with open(name + ".h", "w") as f:
-    f.write("typedef struct song_event_t {\n")
-    f.write("    uint8_t channel;\n")
-    f.write("    uint8_t program;\n")
-    f.write("    uint8_t note;\n")
-    f.write("    uint8_t velocity;\n")
-    f.write("} song_event_t;\n\n")
+    f.write("const uint8_t song_events[] = {\n")
 
-    f.write("const song_event_t song_events[] = {\n")
+    writing_index = 0
 
     delta_us_accumulator = 0
 
@@ -115,11 +124,14 @@ with open(name + ".h", "w") as f:
                 opl_programs[opl_channel] = program
 
                 if delta_us_accumulator >= delta_time_threshold:
-                    write_delta_time(f, delta_us_accumulator)
+                    writing_index = write_delta_time(f, delta_us_accumulator, writing_index)
                     delta_us_accumulator = 0
                     num_delta_times += 1
 
-                f.write("{ " + str(opl_channel) + ", " + str(program) + ", " + str(note) + ", " + str(adjusted_velocity) + " },\n")
+                writing_index = write_value(f, opl_channel, writing_index)
+                writing_index = write_value(f, program, writing_index)
+                writing_index = write_value(f, note, writing_index)
+                writing_index = write_value(f, adjusted_velocity, writing_index)
 
                 num_note_ons += 1
 
@@ -143,11 +155,11 @@ with open(name + ".h", "w") as f:
                 opl_channel_off_timers[opl_channel] = 1
 
                 if delta_us_accumulator >= delta_time_threshold:
-                    write_delta_time(f, delta_us_accumulator)
+                    writing_index = write_delta_time(f, delta_us_accumulator, writing_index)
                     delta_us_accumulator = 0
                     num_delta_times += 1
 
-                f.write("{ " + str(opl_channel) + ", 0, 0, 0 },\n")
+                writing_index = write_value(f, 0x40 + opl_channel, writing_index)
 
                 num_note_offs += 1
 
@@ -164,8 +176,8 @@ with open(name + ".h", "w") as f:
                     channel_expressions[event.channel] = event.value
                     num_cc_changes += 1
 
-    f.write("{ 255, 0, 0, 0 }\n")
-    f.write("};\n")
+    writing_index = write_value(f, 0xff, writing_index)
+    f.write("\n};\n")
 
 print("Num note ons: " + str(num_note_ons))
 print("Num note offs: " + str(num_note_offs))

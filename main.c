@@ -825,23 +825,11 @@ static void init_mesh_adjustment_matrix(fx4x3_t* m, const fx3_t* size, const fx3
     m->m[FX4X3_32] = center->z >> 4;
 }
 
-static inline int is_song_event_valid(const song_event_t* e) {
-    return e->channel != 255;
-}
-
-static inline int is_song_event_delta_time(const song_event_t* e) {
-    return e->channel & 0x80;
-}
-
-static inline uint32_t unpack_song_event_delta_time(const song_event_t* e) {
-    return ((uint32_t)e->program << 16) | ((uint32_t)e->note << 8) | e->velocity;
-}
-
 static void music_update() {
     static uint32_t time_accumulator = 0;
     static uint32_t next_delta_time = 100000UL;
     static uint16_t event_index = 0;
-    const song_event_t* e;
+    uint8_t v;
 
 #if defined(INLINE_ASM)
     _asm {
@@ -854,31 +842,25 @@ static void music_update() {
 
     while (time_accumulator >= next_delta_time) {
         time_accumulator -= next_delta_time;
+        next_delta_time = 0;
 
-        e = &song_events[event_index];
-
-        if (is_song_event_delta_time(e)) {
-            next_delta_time = unpack_song_event_delta_time(e);
-        } else {
-            next_delta_time = 0;
-
-            switch (e->velocity) {
-                case 0: {
-                    opl_stop(e->channel);
-                    break;
-                }
-
-                default: {
-                    uint8_t adjusted_velocity = ((uint16_t)e->velocity * music_volume) >> 8;
-                    opl_play(e->channel, e->program, e->note, adjusted_velocity);
-                    break;
-                }
-            }
-        }
-
-        event_index++;
-        if (!is_song_event_valid(&song_events[event_index])) {
+        v = song_events[event_index++];
+        if (v == 255) {
             event_index = 0;
+        } else if (v & 0x80) {
+            uint8_t v2, v3;
+            v2 = song_events[event_index++];
+            v3 = song_events[event_index++];
+            next_delta_time = ((uint32_t)(v & ~0x80) << 16) | ((uint32_t)v2 << 8) | v3;
+        } else if (v & 0x40) {
+            opl_stop(v & ~0x40);
+        } else {
+            uint8_t program, note, velocity;
+            program = song_events[event_index++];
+            note = song_events[event_index++];
+            velocity = song_events[event_index++];
+            velocity = ((uint16_t)velocity * music_volume) >> 8;
+            opl_play(v, program, note, velocity);
         }
     }
 }
