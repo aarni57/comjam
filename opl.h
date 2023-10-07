@@ -4,7 +4,9 @@
 #include "opl_bank.h"
 
 #define OPL_BASE 0x388
+
 #define NUM_OPL_CHANNELS 9
+#define NUM_OPL_MUSIC_CHANNELS 8
 #define OPL_SFX_CHANNEL 8
 
 static const opl_channel_offsets[NUM_OPL_CHANNELS] = {

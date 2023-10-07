@@ -8,6 +8,11 @@ midifile = umidiparser.MidiFile("/Users/aarni/Library/CloudStorage/Dropbox/Test 
 
 print("Ticks per quarter: " + str(midifile.miditicks_per_quarter))
 
+num_note_ons = 0
+num_note_offs = 0
+num_cc_changes = 0
+num_delta_times = 0
+
 def adjust_velocity(v, volume):
     r = int(v * volume / 127 + 0.5)
     if r > 127:
@@ -15,19 +20,14 @@ def adjust_velocity(v, volume):
     return r
 
 def write_delta_time(f, t):
-    if t < 10000:
-        return t
-
-    if t >= (1 << 24):
+    a = t >> 16
+    if a > 0xff:
         print("Too long delta time")
         exit()
 
-    a = ((t >> 16) & 0xff)
     b = ((t >> 8) & 0xff)
     c = (t & 0xff)
     f.write("{ 128, " + str(a) + ", " + str(b) + ", " + str(c) + " },\n")
-
-    return 0
 
 with open(name + ".h", "w") as f:
     f.write("typedef struct song_event_t {\n")
@@ -83,9 +83,7 @@ with open(name + ".h", "w") as f:
 
     #
 
-    num_note_ons = 0
-    num_note_offs = 0
-    num_cc_changes = 0
+    delta_time_threshold = 2000
 
     for event in midifile:
         #delta_ticks = event.delta_miditicks
@@ -116,7 +114,10 @@ with open(name + ".h", "w") as f:
                 opl_midi_channels[opl_channel] = event.channel
                 opl_programs[opl_channel] = program
 
-                delta_us_accumulator = write_delta_time(f, delta_us_accumulator)
+                if delta_us_accumulator >= delta_time_threshold:
+                    write_delta_time(f, delta_us_accumulator)
+                    delta_us_accumulator = 0
+                    num_delta_times += 1
 
                 f.write("{ " + str(opl_channel) + ", " + str(program) + ", " + str(note) + ", " + str(adjusted_velocity) + " },\n")
 
@@ -141,7 +142,10 @@ with open(name + ".h", "w") as f:
 
                 opl_channel_off_timers[opl_channel] = 1
 
-                delta_us_accumulator = write_delta_time(f, delta_us_accumulator)
+                if delta_us_accumulator >= delta_time_threshold:
+                    write_delta_time(f, delta_us_accumulator)
+                    delta_us_accumulator = 0
+                    num_delta_times += 1
 
                 f.write("{ " + str(opl_channel) + ", 0, 0, 0 },\n")
 
@@ -163,6 +167,7 @@ with open(name + ".h", "w") as f:
     f.write("{ 255, 0, 0, 0 }\n")
     f.write("};\n")
 
-    print("Num note ons: " + str(num_note_ons))
-    print("Num note offs: " + str(num_note_offs))
-    print("Num control changes: " + str(num_cc_changes))
+print("Num note ons: " + str(num_note_ons))
+print("Num note offs: " + str(num_note_offs))
+print("Num control changes: " + str(num_cc_changes))
+print("Num delta times: " + str(num_delta_times))

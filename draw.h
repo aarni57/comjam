@@ -81,6 +81,11 @@ static inline void project_to_screen(fx3_t* v) {
     aw_assert(v->z <= UINT16_MAX);
 }
 
+static inline void projected_position_to_screen(fx3_t* p) {
+    p->x = (p->x + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+    p->y = (p->y + RASTER_SUBPIXEL_HALF) >> RASTER_SUBPIXEL_BITS;
+}
+
 //
 
 static inline void draw_triangle_lines(fx_t x0, fx_t y0, fx_t x1, fx_t y1, fx_t x2, fx_t y2, uint8_t c) {

@@ -45,6 +45,7 @@ static uint8_t __far* dblbuf = NULL;
 
 #include "drawtext.h"
 #include "draw.h"
+#include "drawutil.h"
 
 //
 
@@ -75,18 +76,20 @@ static inline uint32_t read_timer_ticks() {
 
 static const char* exit_message = "JEMM unloaded... Not really :-)";
 
-static int quit = 0;
-static int vsync = 0;
-static int help = 0;
-static int draw_mode = 0;
-static int stars_enabled = 1;
-static int debris_enabled = 1;
-static int ship_enabled = 1;
-static int texts_enabled = 1;
-static int fps_enabled = 1;
-static volatile int music_enabled = 1;
+static uint8_t quit = 0;
+static uint8_t vsync = 0;
+static uint8_t help = 0;
+static uint8_t draw_mode = 0;
+static uint8_t stars_enabled = 1;
+static uint8_t debris_enabled = 1;
+static uint8_t ship_enabled = 1;
+static uint8_t texts_enabled = 1;
+static uint8_t fps_enabled = 1;
+static volatile uint8_t music_enabled = 1;
+static volatile uint8_t music_stopped = 0;
+static volatile uint8_t music_volume = 255;
 
-static int benchmark_timer = 0;
+static uint8_t benchmark_timer = 0;
 static uint32_t benchmark_start_tick = 0;
 static uint32_t benchmark_result = 0;
 
@@ -104,6 +107,11 @@ static struct {
     uint32_t current_tick;
     uint16_t ticks_to_advance;
 } timing = { 0 };
+
+static struct {
+    uint16_t targeting_timer;
+    fx3_t target_position;
+} game_state = { 0 };
 
 //
 
@@ -343,6 +351,8 @@ static void update() {
     for (i = 0; i < timing.ticks_to_advance; ++i) {
         update_debris();
     }
+
+    game_state.target_position = debris_positions[0];
 }
 
 static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h, uint8_t* th) {
@@ -687,6 +697,31 @@ static void draw_debris(const fx4x3_t* view_matrix) {
     }
 }
 
+#define TARGETING_BOX_HALF_WIDTH 6
+#define TARGETING_BOX_HALF_HEIGHT 5
+
+static void draw_targeting(const fx4x3_t* view_matrix, const fx3_t* target_position) {
+    fx3_t p;
+    fx_transform_point(&p, view_matrix, target_position);
+    if (p.z < NEAR_CLIP)
+        return;
+
+    project_to_screen(&p);
+    projected_position_to_screen(&p);
+
+    if (p.x - TARGETING_BOX_HALF_WIDTH < 0 ||
+        p.x + TARGETING_BOX_HALF_WIDTH >= SCREEN_WIDTH ||
+        p.y - TARGETING_BOX_HALF_HEIGHT < 0 ||
+        p.y + TARGETING_BOX_HALF_HEIGHT >= SCREEN_HEIGHT)
+        return;
+
+    draw_box_outline(p.x - TARGETING_BOX_HALF_WIDTH,
+        p.y - TARGETING_BOX_HALF_HEIGHT,
+        p.x + TARGETING_BOX_HALF_WIDTH,
+        p.y + TARGETING_BOX_HALF_HEIGHT,
+        1);
+}
+
 static const char* const TEXT = "2669, Gemini sector, Troy system";
 
 static void draw_texts() {
@@ -768,6 +803,15 @@ static void draw() {
 
             draw_fps();
         }
+
+        {
+            uint16_t i;
+            for (i = 0; i < NUM_DEBRIS; ++i) {
+                draw_targeting(&view_matrix, &debris_positions[i]);
+            }
+        }
+
+        draw_darkened_box(8, 100, 140, 200 - 8);
     }
 }
 
@@ -799,7 +843,14 @@ static void music_update() {
     static uint16_t event_index = 0;
     const song_event_t* e;
 
-    time_accumulator += 13731;
+#if defined(INLINE_ASM)
+    _asm {
+        .386
+        add dword ptr time_accumulator, TIMER_TICK_USEC
+    }
+#else
+    time_accumulator += TIMER_TICK_USEC;
+#endif
 
     while (time_accumulator >= next_delta_time) {
         time_accumulator -= next_delta_time;
@@ -818,7 +869,8 @@ static void music_update() {
                 }
 
                 default: {
-                    opl_play(e->channel, e->program, e->note, e->velocity);
+                    uint8_t adjusted_velocity = ((uint16_t)e->velocity * music_volume) >> 8;
+                    opl_play(e->channel, e->program, e->note, adjusted_velocity);
                     break;
                 }
             }
@@ -832,8 +884,18 @@ static void music_update() {
 }
 
 void timer_update() {
-    if (music_enabled && opl)
-        music_update();
+    if (opl) {
+        if (music_enabled) {
+            music_update();
+            music_stopped = 0;
+        } else if (!music_stopped) {
+            uint8_t i;
+            for (i = 0; i < NUM_OPL_MUSIC_CHANNELS; ++i)
+                opl_stop(i);
+
+            music_stopped = 1;
+        }
+    }
 }
 
 void main() {
@@ -880,11 +942,13 @@ void main() {
     {
         uint16_t i;
         const uint8_t* src = PALETTE;
+        aw_assert(NUM_PALETTE_COLORS <= 128);
         for (i = 0; i < NUM_PALETTE_COLORS; ++i) {
             uint8_t r = *src++;
             uint8_t g = *src++;
             uint8_t b = *src++;
             vga_set_palette(i, r >> 2, g >> 2, b >> 2);
+            vga_set_palette(i + 128, r >> 4, g >> 4, b >> 4);
         }
     }
 

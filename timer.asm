@@ -71,11 +71,6 @@ timer_cleanup_:
 timer_isr:
     inc dword [cs:_timer_ticks]
 
-    push eax
-    mov eax, [cs:_timer_ticks]
-    and eax, 0xf
-    jnz skip_update
-
     pushad
     push ds
     push es
@@ -90,17 +85,18 @@ timer_isr:
     pop ds
     popad
 
-skip_update:
     dec word [cs:clock_counter]
     jz clock_update
+
+    push ax
     mov al, 0x20
     out 0x20, al
-    pop eax
+    pop ax
+
     iret
 
 clock_update:
     mov word [cs:clock_counter], 0x40
-    pop eax
     jmp far [cs:prev_isr]
 
     align 4
