@@ -20,29 +20,57 @@ static inline void draw_darkened_box(uint16_t x0, uint16_t y0, uint16_t x1, uint
     }
 }
 
-static inline void draw_box_outline(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint8_t c) {
-    uint16_t x, y;
-    uint8_t __far* tgt;
+static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t c) {
+    int16_t left = clamp16(x0, 0, SCREEN_WIDTH - 1);
+    int16_t right = clamp16(x1, 0, SCREEN_WIDTH - 1);
+    int16_t top = clamp16(y0, 0, SCREEN_HEIGHT - 1);
+    int16_t bottom = clamp16(y1, 0, SCREEN_HEIGHT - 1);
+    int16_t x, y;
+    uint8_t __far* tgt, __far* tgt_end;
 
-    tgt = dblbuf + mul_by_screen_stride(y0) + x0;
+    if (x0 < SCREEN_WIDTH && x1 >= 0) {
+        if (y0 >= 0 && y0 < SCREEN_HEIGHT) {
+            tgt = dblbuf + mul_by_screen_stride(y0) + left;
+            aw_assert(tgt >= dblbuf);
+            tgt_end = tgt + (right - left + 1);
+            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+            while (tgt < tgt_end) {
+                *tgt++ = c;
+            }
+        }
 
-    for (x = x0; x <= x1; ++x) {
-        *tgt++ = c;
+        if (y1 >= 0 && y1 < SCREEN_HEIGHT) {
+            tgt = dblbuf + mul_by_screen_stride(y1) + left;
+            aw_assert(tgt >= dblbuf);
+            tgt_end = tgt + (right - left + 1);
+            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+            while (tgt < tgt_end) {
+                *tgt++ = c;
+            }
+        }
     }
 
-    tgt = dblbuf + mul_by_screen_stride(y1) + x0;
+    if (bottom - top > 1) {
+        if (x0 >= 0 && x0 < SCREEN_WIDTH) {
+            tgt = dblbuf + mul_by_screen_stride(top + 1) + x0;
+            aw_assert(tgt >= dblbuf);
+            tgt_end = tgt + mul_by_screen_stride(bottom - top - 1);
+            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+            while (tgt < tgt_end) {
+                *tgt = c;
+                tgt += SCREEN_WIDTH;
+            }
+        }
 
-    for (x = x0; x <= x1; ++x) {
-        *tgt++ = c;
-    }
-
-    if (y1 - y0 > 1) {
-        uint16_t width = x1 - x0;
-        tgt = dblbuf + mul_by_screen_stride(y0 + 1) + x0;
-        for (y = y0; y < y1 - 1; ++y) {
-            tgt[0] = c;
-            tgt[width] = c;
-            tgt += SCREEN_WIDTH;
+        if (x1 >= 0 && x1 < SCREEN_WIDTH) {
+            tgt = dblbuf + mul_by_screen_stride(top + 1) + x1;
+            aw_assert(tgt >= dblbuf);
+            tgt_end = tgt + mul_by_screen_stride(bottom - top - 1);
+            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+            while (tgt < tgt_end) {
+                *tgt = c;
+                tgt += SCREEN_WIDTH;
+            }
         }
     }
 }

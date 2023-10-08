@@ -15,7 +15,7 @@ static const opl_channel_offsets[NUM_OPL_CHANNELS] = {
 
 static volatile uint8_t opl_register_states[256] = { 0 };
 
-#if 1
+#if defined(INLINE_ASM)
 
 void opl_write_asm(uint8_t reg, uint8_t v);
 #pragma aux opl_write_asm = \
@@ -96,7 +96,7 @@ static inline void opl_write_fast(uint8_t reg, uint8_t v) {
 }
 #endif
 
-static void opl_reset() {
+static inline void opl_reset() {
     uint8_t i;
 
     if (!opl)
@@ -107,7 +107,7 @@ static void opl_reset() {
     }
 }
 
-static void opl_init() {
+static inline void opl_init() {
     uint8_t val1, val2;
 
     // Reset timer 1 and 2
@@ -152,9 +152,10 @@ static void opl_init() {
     opl_reset();
     opl_write(0x01, 0x20);
     opl_write(0x08, 0x40);
+    opl_write(0xbd, 0x80 | 0x40);
 }
 
-static void opl_done() {
+static inline void opl_done() {
     if (!opl)
         return;
 
@@ -162,11 +163,14 @@ static void opl_done() {
     opl = 0;
 }
 
-static void opl_stop(uint8_t channel) {
+static inline void opl_stop(uint8_t channel) {
+    uint8_t reg;
+
     if (!opl)
         return;
 
-    opl_write(0xb0 + channel, 0); // Voice off
+    reg = 0xb0 + channel;
+    opl_write(reg, opl_register_states[reg] & ~0x20); // Voice off
 }
 
 static const uint16_t opl_freq_table[12] = {
@@ -192,7 +196,7 @@ static const uint8_t opl_attenuation_table[128] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-static void opl_play(uint8_t channel, uint8_t program, uint8_t note, uint8_t velocity) {
+static inline void opl_play(uint8_t channel, uint8_t program, uint8_t note, uint8_t velocity) {
     aw_assert(channel < NUM_OPL_CHANNELS && program < 128 && note < 128 &&
         velocity < 128);
 
@@ -251,6 +255,17 @@ static void opl_play(uint8_t channel, uint8_t program, uint8_t note, uint8_t vel
 
         // Turn the voice on; set the octave and freq MSB
         opl_write(0xb0 + channel, 0x20 | (octave << 2) | (f >> 8));
+    }
+}
+
+static inline void opl_warmup() {
+    uint8_t i;
+    for (i = 0; i < NUM_OPL_CHANNELS; ++i) {
+        opl_play(i, 122, 127, 0);
+    }
+
+    for (i = 0; i < NUM_OPL_CHANNELS; ++i) {
+        opl_stop(i);
     }
 }
 

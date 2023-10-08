@@ -14,7 +14,7 @@
 
 //
 
-#if 0
+#if 1
 #   include <assert.h>
 #   define aw_assert assert
 #else
@@ -85,9 +85,13 @@ static uint8_t debris_enabled = 1;
 static uint8_t ship_enabled = 1;
 static uint8_t texts_enabled = 1;
 static uint8_t fps_enabled = 1;
+
 static volatile uint8_t music_enabled = 1;
 static volatile uint8_t music_stopped = 0;
 static volatile uint8_t music_volume = 255;
+static volatile uint8_t sfx_enabled = 1;
+static volatile uint8_t sfx_stopped = 0;
+static volatile uint8_t sfx_volume = 255;
 
 static uint8_t benchmark_timer = 0;
 static uint32_t benchmark_start_tick = 0;
@@ -255,66 +259,6 @@ static void update_timing(uint32_t dt_us) {
     }
 
     timing.current_tick += timing.ticks_to_advance;
-}
-
-static void update_input() {
-    if (kbhit()) {
-        char ch = getch();
-        switch (ch) {
-            case 27:
-                quit = 1;
-                break;
-
-            case 'a':
-                opl_stop(OPL_SFX_CHANNEL);
-                opl_play(OPL_SFX_CHANNEL, 100, 30, 127);
-                break;
-
-            case '1':
-                stars_enabled ^= 1;
-                break;
-
-            case '2':
-                debris_enabled ^= 1;
-                break;
-
-            case '3':
-                ship_enabled ^= 1;
-                break;
-
-            case '4':
-                texts_enabled ^= 1;
-                break;
-
-            case '5':
-                fps_enabled ^= 1;
-                break;
-
-            case '6':
-                music_enabled ^= 1;
-                break;
-
-            case 'b':
-                if (!is_benchmark_running())
-                    start_benchmark();
-                break;
-
-            case 'v':
-                vsync ^= 1;
-                break;
-
-            case 'w':
-                draw_mode ^= 1;
-                break;
-
-            case 'h':
-                help ^= 1;
-                break;
-
-            default:
-                break;
-        }
-    }
 }
 
 static void update_debris() {
@@ -697,8 +641,8 @@ static void draw_debris(const fx4x3_t* view_matrix) {
     }
 }
 
-#define TARGETING_BOX_HALF_WIDTH 6
-#define TARGETING_BOX_HALF_HEIGHT 5
+#define TARGETING_BOX_HALF_WIDTH 12
+#define TARGETING_BOX_HALF_HEIGHT 10
 
 static void draw_targeting(const fx4x3_t* view_matrix, const fx3_t* target_position) {
     fx3_t p;
@@ -709,11 +653,13 @@ static void draw_targeting(const fx4x3_t* view_matrix, const fx3_t* target_posit
     project_to_screen(&p);
     projected_position_to_screen(&p);
 
+#if 0
     if (p.x - TARGETING_BOX_HALF_WIDTH < 0 ||
         p.x + TARGETING_BOX_HALF_WIDTH >= SCREEN_WIDTH ||
         p.y - TARGETING_BOX_HALF_HEIGHT < 0 ||
         p.y + TARGETING_BOX_HALF_HEIGHT >= SCREEN_HEIGHT)
         return;
+#endif
 
     draw_box_outline(p.x - TARGETING_BOX_HALF_WIDTH,
         p.y - TARGETING_BOX_HALF_HEIGHT,
@@ -804,6 +750,7 @@ static void draw() {
             draw_fps();
         }
 
+#if 0
         {
             uint16_t i;
             for (i = 0; i < NUM_DEBRIS; ++i) {
@@ -812,6 +759,7 @@ static void draw() {
         }
 
         draw_darkened_box(8, 120, 120, 200 - 8);
+#endif
     }
 }
 
@@ -827,7 +775,7 @@ static void init_mesh_adjustment_matrix(fx4x3_t* m, const fx3_t* size, const fx3
 
 static void music_update() {
     static uint32_t time_accumulator = 0;
-    static uint32_t next_delta_time = 100000UL;
+    static uint32_t next_delta_time = 1000000UL;
     static uint16_t event_index = 0;
     static uint8_t channel_programs[NUM_OPL_MUSIC_CHANNELS] = { 0 };
     uint8_t v;
@@ -843,20 +791,26 @@ static void music_update() {
 
     while (time_accumulator >= next_delta_time) {
         time_accumulator -= next_delta_time;
-        next_delta_time = 0;
 
         v = song_events[event_index++];
         if (v == 255) {
             event_index = 0;
+            next_delta_time = 0;
         } else if (v & 0x80) {
-            uint8_t v2, v3;
-            v2 = song_events[event_index++];
-            v3 = song_events[event_index++];
+            uint8_t v2 = song_events[event_index++];
+            uint8_t v3 = song_events[event_index++];
             next_delta_time = ((uint32_t)(v & ~0x80) << 16) | ((uint32_t)v2 << 8) | v3;
+            next_delta_time <<= 3;
+        } else if (v & 0x40) {
+            uint8_t v2 = song_events[event_index++];
+            next_delta_time = ((uint32_t)(v & ~0x40) << 8) | v2;
+            next_delta_time <<= 3;
         } else if (v & 0x20) {
             channel_programs[v & ~0x20] = song_events[event_index++];
+            next_delta_time = 0;
         } else if (v & 0x10) {
             opl_stop(v & ~0x10);
+            next_delta_time = 0;
         } else {
             uint8_t note, velocity;
             aw_assert(v < NUM_OPL_MUSIC_CHANNELS);
@@ -864,6 +818,19 @@ static void music_update() {
             velocity = song_events[event_index++];
             velocity = ((uint16_t)velocity * music_volume) >> 8;
             opl_play(v, channel_programs[v], note, velocity);
+            next_delta_time = 0;
+        }
+    }
+}
+
+static volatile uint32_t sfx_event_duration = 0;
+
+static void sfx_update() {
+    if (sfx_event_duration != 0) {
+        if (sfx_event_duration >= TIMER_TICK_USEC) {
+            sfx_event_duration -= TIMER_TICK_USEC;
+        } else {
+            opl_stop(OPL_SFX_CHANNEL);
         }
     }
 }
@@ -879,6 +846,76 @@ void timer_update() {
                 opl_stop(i);
 
             music_stopped = 1;
+        }
+
+        if (sfx_enabled) {
+            sfx_update();
+            sfx_stopped = 0;
+        } else {
+            opl_stop(OPL_SFX_CHANNEL);
+            sfx_stopped = 1;
+        }
+    }
+}
+
+static void update_input() {
+    if (kbhit()) {
+        char ch = getch();
+        switch (ch) {
+            case 27:
+                quit = 1;
+                break;
+
+            case 'a':
+                _disable();
+                sfx_event_duration = 60000;
+                opl_play(OPL_SFX_CHANNEL, 80, 69, 24);
+                _enable();
+                break;
+
+            case '1':
+                stars_enabled ^= 1;
+                break;
+
+            case '2':
+                debris_enabled ^= 1;
+                break;
+
+            case '3':
+                ship_enabled ^= 1;
+                break;
+
+            case '4':
+                texts_enabled ^= 1;
+                break;
+
+            case '5':
+                fps_enabled ^= 1;
+                break;
+
+            case '6':
+                music_enabled ^= 1;
+                break;
+
+            case 'b':
+                if (!is_benchmark_running())
+                    start_benchmark();
+                break;
+
+            case 'v':
+                vsync ^= 1;
+                break;
+
+            case 'w':
+                draw_mode ^= 1;
+                break;
+
+            case 'h':
+                help ^= 1;
+                break;
+
+            default:
+                break;
         }
     }
 }
@@ -919,6 +956,7 @@ void main() {
         goto exit;
 
     opl_init();
+    opl_warmup();
 
     timer_init(); timer_initialized = 1;
 
@@ -1028,9 +1066,9 @@ exit:
     _ffree(tm_buffer);
     _ffree(draw_buffer);
     _ffree(sort_buffer);
+    vga_set_mode(0x3);
     if (timer_initialized) timer_cleanup();
     opl_done();
-    vga_set_mode(0x3);
     putz(exit_message);
     set_text_cursor(1, 0);
     kb_clear_buffer();
