@@ -4,13 +4,13 @@
 #include <conio.h>
 #include <stdint.h>
 
-void kb_clear_buffer();
+static inline void kb_clear_buffer();
 #pragma aux kb_clear_buffer =   \
 "mov ax, 0x0c00" \
 "int 0x21" \
 modify [ax];
 
-void putz(const char* str);
+static inline void putz(const char* str);
 #pragma aux putz = \
 "l:" \
 "mov dl, [bx]" \
@@ -26,7 +26,7 @@ void putz(const char* str);
 modify [ax dx] \
 parm [bx];
 
-void set_text_cursor(uint8_t row, uint8_t col);
+static inline void set_text_cursor(uint8_t row, uint8_t col);
 #pragma aux set_text_cursor = \
 "mov ah, 2" \
 "mov bh, 0" \
@@ -34,5 +34,55 @@ void set_text_cursor(uint8_t row, uint8_t col);
 "int 10h" \
 modify [ax bh] \
 parm [dh] [dl];
+
+static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h, uint8_t* th) {
+    uint8_t ones, tens, hundreds, thousands;
+#if !defined(INLINE_ASM)
+    thousands = v / 1000;
+    v -= thousands * 1000;
+    hundreds = v / 100;
+    v -= hundreds * 100;
+    tens = v / 10;
+    v -= tens * 10;
+    ones = v;
+#else
+    __asm {
+        .386
+        mov ax, v
+        mov cx, 1000
+        xor dx, dx
+        div cx
+        mov thousands, al
+        mov ax, dx
+        mov cx, 100
+        xor dx, dx
+        div cx
+        mov hundreds, al
+        mov ax, dx
+        mov cx, 10
+        xor dx, dx
+        div cx
+        mov tens, al
+        mov ones, dl
+    }
+#endif
+    *o = ones;
+    *te = tens;
+    *h = hundreds;
+    *th = thousands;
+}
+
+static inline char number_to_char(uint8_t v) {
+    return '0' + v;
+}
+
+static inline void number_to_string(char* buf, uint16_t v) {
+    uint8_t ones, tens, hundreds, thousands;
+    split_number(v, &ones, &tens, &hundreds, &thousands);
+    buf[0] = thousands ? number_to_char(thousands) : ' ';
+    buf[1] = (thousands || hundreds) ? number_to_char(hundreds) : ' ';
+    buf[2] = (thousands || hundreds || tens) ? number_to_char(tens) : ' ';
+    buf[3] = number_to_char(ones);
+}
 
 #endif

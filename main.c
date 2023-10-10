@@ -14,7 +14,7 @@
 
 //
 
-#if 1
+#if 0
 #   include <assert.h>
 #   define aw_assert assert
 #else
@@ -28,24 +28,22 @@
 
 //
 
+#include "keys.h"
 #include "vga.h"
 #include "minmax.h"
 #include "util.h"
 #include "pal.h"
-#include "ship.h"
-#include "asteroid.h"
-#include "scrap.h"
-#include "scrap2.h"
-#include "scrap3.h"
 #include "song.h"
 
 //
 
-static uint8_t __far* dblbuf = NULL;
-
+#include "dblbuf.h" // Needs to be before drawing code
+#include "meshdraw.h"
 #include "drawtext.h"
-#include "draw.h"
 #include "drawutil.h"
+#include "randutil.h"
+#include "debris.h"
+#include "stars.h"
 
 //
 
@@ -54,7 +52,7 @@ static int opl = 0;
 
 //
 
-static int timer_initialized = 0;
+static uint8_t timer_initialized = 0;
 
 volatile uint32_t timer_ticks;
 
@@ -74,6 +72,14 @@ static inline uint32_t read_timer_ticks() {
 
 //
 
+static uint8_t keyboard_initialized = 0;
+
+// defined in keyb.asm
+void keyb_init();
+void keyb_cleanup();
+
+//
+
 static const char* exit_message = "JEMM unloaded... Not really :-)";
 
 static uint8_t quit = 0;
@@ -88,20 +94,35 @@ static uint8_t fps_enabled = 1;
 
 static volatile uint8_t music_enabled = 1;
 static volatile uint8_t music_stopped = 0;
-static volatile uint8_t music_volume = 255;
+static volatile uint16_t music_volume = 256;
 static volatile uint8_t sfx_enabled = 1;
 static volatile uint8_t sfx_stopped = 0;
-static volatile uint8_t sfx_volume = 255;
+static volatile uint16_t sfx_volume = 256;
 
 static uint8_t benchmark_timer = 0;
 static uint32_t benchmark_start_tick = 0;
 static uint32_t benchmark_result = 0;
+
+//
 
 static struct {
     uint32_t time_accumulator;
     uint32_t frame_accumulator;
     uint32_t average;
 } fps = { 0 };
+
+static void update_fps(uint32_t frame_dt) {
+    fps.time_accumulator += frame_dt;
+    if (fps.time_accumulator >= 1000000) {
+        fps.average = div32(mul32(fps.frame_accumulator, 1000000), fps.time_accumulator);
+        fps.time_accumulator = 0;
+        fps.frame_accumulator = 0;
+    }
+
+    fps.frame_accumulator++;
+}
+
+//
 
 #define TICK_LENGTH_US (1000000UL / 120)
 
@@ -118,91 +139,6 @@ static struct {
 } game_state = { 0 };
 
 //
-
-#if !defined(INLINE_ASM)
-#define XORSHIFT32_INITIAL_VALUE 0xcafebabe
-static uint32_t xorshift32_state = XORSHIFT32_INITIAL_VALUE;
-
-static inline uint32_t xorshift32() {
-    /* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
-    xorshift32_state ^= xorshift32_state << 13;
-    xorshift32_state ^= xorshift32_state >> 17;
-    xorshift32_state ^= xorshift32_state << 5;
-    return xorshift32_state;
-}
-
-static inline void xorshift32_reset() {
-    xorshift32_state = XORSHIFT32_INITIAL_VALUE;
-}
-#else
-uint32_t xorshift32();
-void xorshift32_reset();
-#endif
-
-#if !defined(INLINE_ASM)
-static inline fx_t fx_random_one() {
-    return xorshift32() & (FX_ONE - 1);
-}
-
-static inline fx_t fx_random_signed_one() {
-    return (xorshift32() & (FX_ONE * 2 - 1)) - FX_ONE;
-}
-
-static inline fx_t random_debris_x() {
-    return fx_random_signed_one() >> 1;
-}
-#else
-fx_t fx_random_one();
-fx_t fx_random_signed_one();
-fx_t random_debris_x();
-#endif
-
-#define NUM_DEBRIS 56
-static fx3_t debris_positions[NUM_DEBRIS];
-static fx3_t debris_rotation_axes[NUM_DEBRIS];
-static fx_t debris_rotations[NUM_DEBRIS];
-static fx_t debris_rotation_speeds[NUM_DEBRIS];
-static fx3_t debris_speeds[NUM_DEBRIS];
-
-static inline void randomize_debris_properties(uint16_t i) {
-    fx3_t r;
-    r.x = fx_random_signed_one();
-    r.y = fx_random_signed_one();
-    r.z = fx_random_signed_one();
-    fx3_normalize_ip(&r);
-    debris_rotation_axes[i] = r;
-
-    debris_rotations[i] = fx_random_one();
-
-    switch (i & 3) {
-        case 0:
-        case 1:
-        case 2:
-            debris_rotation_speeds[i] = (fx_random_one() >> 7) + 256;
-            debris_speeds[i].x = (fx_random_one() >> 12);
-            debris_speeds[i].y = (fx_random_one() >> 12) - (FX_ONE >> 10);
-            debris_speeds[i].z = (fx_random_one() >> 12);
-            break;
-        case 3:
-            debris_rotation_speeds[i] = (fx_random_one() >> 8) + 256;
-            debris_speeds[i].x = (fx_random_one() >> 13);
-            debris_speeds[i].y = (fx_random_one() >> 13) - (FX_ONE >> 10);
-            debris_speeds[i].z = (fx_random_one() >> 13);
-            break;
-    }
-}
-
-static void init_debris() {
-    uint16_t i;
-    for (i = 0; i < NUM_DEBRIS; ++i) {
-        fx3_t r;
-        r.x = random_debris_x();
-        r.y = random_debris_x();
-        r.z = random_debris_x();
-        debris_positions[i] = r;
-        randomize_debris_properties(i);
-    }
-}
 
 static void restart() {
     timing.current_frame = 0;
@@ -261,35 +197,6 @@ static void update_timing(uint32_t dt_us) {
     timing.current_tick += timing.ticks_to_advance;
 }
 
-static void update_debris() {
-    uint16_t i;
-    for (i = 0; i < NUM_DEBRIS; ++i) {
-        fx3_add_ip(&debris_positions[i], &debris_speeds[i]);
-        if (debris_positions[i].y <= -32768) {
-            debris_positions[i].y += 65536;
-            debris_positions[i].x = random_debris_x();
-            debris_positions[i].z = random_debris_x();
-        } else {
-            if (debris_positions[i].x <= -32768) {
-                debris_positions[i].x += 65536;
-            } else if (debris_positions[i].x >= 32768) {
-                debris_positions[i].x -= 65536;
-            }
-
-            if (debris_positions[i].z <= -32768) {
-                debris_positions[i].z += 65536;
-            } else if (debris_positions[i].z >= 32768) {
-                debris_positions[i].z -= 65536;
-            }
-        }
-
-        debris_rotations[i] += debris_rotation_speeds[i];
-        if (debris_rotations[i] >= FX_ONE) {
-            debris_rotations[i] -= FX_ONE;
-        }
-    }
-}
-
 static void update() {
     uint16_t i = 0;
     for (i = 0; i < timing.ticks_to_advance; ++i) {
@@ -297,56 +204,6 @@ static void update() {
     }
 
     game_state.target_position = debris_positions[0];
-}
-
-static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h, uint8_t* th) {
-    uint8_t ones, tens, hundreds, thousands;
-#if !defined(INLINE_ASM)
-    thousands = v / 1000;
-    v -= thousands * 1000;
-    hundreds = v / 100;
-    v -= hundreds * 100;
-    tens = v / 10;
-    v -= tens * 10;
-    ones = v;
-#else
-    __asm {
-        .386
-        mov ax, v
-        mov cx, 1000
-        xor dx, dx
-        div cx
-        mov thousands, al
-        mov ax, dx
-        mov cx, 100
-        xor dx, dx
-        div cx
-        mov hundreds, al
-        mov ax, dx
-        mov cx, 10
-        xor dx, dx
-        div cx
-        mov tens, al
-        mov ones, dl
-    }
-#endif
-    *o = ones;
-    *te = tens;
-    *h = hundreds;
-    *th = thousands;
-}
-
-static inline char number_to_char(uint8_t v) {
-    return '0' + v;
-}
-
-static inline void number_to_string(char* buf, uint16_t v) {
-    uint8_t ones, tens, hundreds, thousands;
-    split_number(v, &ones, &tens, &hundreds, &thousands);
-    buf[0] = thousands ? number_to_char(thousands) : ' ';
-    buf[1] = (thousands || hundreds) ? number_to_char(hundreds) : ' ';
-    buf[2] = (thousands || hundreds || tens) ? number_to_char(tens) : ' ';
-    buf[3] = number_to_char(ones);
 }
 
 static void draw_fps() {
@@ -387,260 +244,6 @@ static void setup_view_matrix(fx4x3_t* view_matrix) {
     fx4x3_look_at(view_matrix, &eye, &target);
 }
 
-#define NUM_STARS 160
-static int8_t star_positions[NUM_STARS * 3];
-
-static void init_stars() {
-    int8_t* p_tgt = star_positions;
-    uint16_t i, j;
-    for (i = 0; i < NUM_STARS; ++i) {
-        int8_t x, y, z;
-
-        for (;;) {
-            int ok = 1;
-            fx3_t v;
-            v.x = fx_random_signed_one();
-            v.y = fx_random_signed_one();
-            v.z = fx_random_signed_one();
-            fx3_normalize_ip(&v);
-
-            x = clamp16(v.x >> 9, INT8_MIN, INT8_MAX);
-            y = clamp16(v.y >> 9, INT8_MIN, INT8_MAX);
-            z = clamp16(v.z >> 9, INT8_MIN, INT8_MAX);
-
-            {
-                int8_t* p_iter = star_positions;
-                for (j = 0; j < i; ++j) {
-                    int8_t u, v, w;
-                    u = *p_iter++;
-                    v = *p_iter++;
-                    w = *p_iter++;
-                    if (x == u && y == v && z == w) {
-                        ok = 0;
-                        break;
-                    }
-                }
-            }
-
-            if (ok)
-                break;
-        }
-
-        *p_tgt++ = x;
-        *p_tgt++ = y;
-        *p_tgt++ = z;
-    }
-}
-
-static void draw_stars(const fx4x3_t* view_matrix) {
-    int16_t x, y;
-    uint16_t i;
-    fx3_t v;
-    int8_t* p_iter = star_positions;
-
-    for (i = 0; i < NUM_STARS; ++i) {
-        v.x = (*p_iter++) << 9;
-        v.y = (*p_iter++) << 9;
-        v.z = (*p_iter++) << 9;
-        fx_transform_vector_ip(view_matrix, &v);
-
-        if (v.z < NEAR_CLIP)
-            continue;
-
-        project_to_screen(&v);
-
-        x = v.x >> RASTER_SUBPIXEL_BITS;
-        y = v.y >> RASTER_SUBPIXEL_BITS;
-
-        switch (i & 7) {
-            case 0:
-            case 1: {
-                if (x >= 0 && x <= SCREEN_X_MAX && y >= 0 && y <= SCREEN_Y_MAX) {
-                    uint16_t offset = mul_by_screen_stride(y) + x;
-                    dblbuf[offset] = 117;
-                }
-
-                break;
-            }
-
-            case 2:
-            case 3:
-            case 4: {
-                if (x >= 0 && x <= SCREEN_X_MAX && y >= 0 && y <= SCREEN_Y_MAX) {
-                    uint16_t offset = mul_by_screen_stride(y) + x;
-                    dblbuf[offset] = 9;
-                }
-
-                break;
-            }
-
-            case 5:
-            case 6: {
-                if (x >= 1 && x <= SCREEN_X_MAX - 1 && y >= 1 && y <= SCREEN_Y_MAX - 1) {
-                    uint16_t offset = mul_by_screen_stride(y) + x;
-                    dblbuf[offset - SCREEN_WIDTH] = 8;
-                    dblbuf[offset - 1] = 8;
-                    dblbuf[offset] = 117;
-                    dblbuf[offset + 1] = 8;
-                    dblbuf[offset + SCREEN_WIDTH] = 8;
-                }
-
-                break;
-            }
-
-            case 7: {
-                if (x >= 1 && x < SCREEN_X_MAX - 1 && y >= 1 && y < SCREEN_Y_MAX - 1) {
-                    uint16_t offset = mul_by_screen_stride(y) + x;
-                    dblbuf[offset - SCREEN_WIDTH] = 9;
-                    dblbuf[offset - 1] = 9;
-                    dblbuf[offset] = 105;
-                    dblbuf[offset + 1] = 9;
-                    dblbuf[offset + SCREEN_WIDTH] = 9;
-                }
-
-                break;
-            }
-        }
-    }
-}
-
-static fx4x3_t ship_mesh_adjust_matrix;
-static fx4x3_t asteroid_mesh_adjust_matrix;
-static fx4x3_t scrap_mesh_adjust_matrix;
-static fx4x3_t scrap2_mesh_adjust_matrix;
-static fx4x3_t scrap3_mesh_adjust_matrix;
-
-static void draw_ship(const fx4x3_t* view_matrix) {
-    fx4x3_t model_matrix, tmp, model_view_matrix;
-    fx3_t model_translation;
-
-#if 0
-    fx_t t1, t2;
-
-    t1 = (fx_t)timing.current_tick * 22;
-    t2 = (fx_t)timing.current_tick * 27;
-    model_translation.x = fx_cos(t1) >> 7;
-    model_translation.y = 0;
-    model_translation.z = (fx_sin(t2) >> 8) + 64;
-#else
-    model_translation.x = 0;
-    model_translation.y = 0;
-    model_translation.z = 0;
-#endif
-
-    fx4x3_translation(&model_matrix, &model_translation);
-
-    fx4x3_mul(&tmp, &model_matrix, &ship_mesh_adjust_matrix);
-    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
-
-    draw_mesh(&model_view_matrix,
-        ship_num_indices, ship_num_vertices,
-        ship_indices, ship_face_colors, ship_vertices);
-}
-
-static void draw_asteroid(const fx4x3_t* view_matrix, const fx4_t* rotation,
-    const fx3_t* translation) {
-    fx4x3_t model_matrix, tmp, model_view_matrix;
-
-    fx4x3_rotation_translation(&model_matrix, rotation, translation);
-
-    fx4x3_mul(&tmp, &model_matrix, &asteroid_mesh_adjust_matrix);
-    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
-
-    draw_mesh(&model_view_matrix,
-        asteroid_num_indices, asteroid_num_vertices,
-        asteroid_indices, asteroid_face_colors, asteroid_vertices);
-}
-
-static void draw_scrap(const fx4x3_t* view_matrix, const fx4_t* rotation,
-    const fx3_t* translation) {
-    fx4x3_t model_matrix, tmp, model_view_matrix;
-
-    fx4x3_rotation_translation(&model_matrix, rotation, translation);
-
-    fx4x3_mul(&tmp, &model_matrix, &scrap_mesh_adjust_matrix);
-    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
-
-    draw_mesh(&model_view_matrix,
-        scrap_num_indices, scrap_num_vertices,
-        scrap_indices, scrap_face_colors, scrap_vertices);
-}
-
-static void draw_scrap2(const fx4x3_t* view_matrix, const fx4_t* rotation,
-    const fx3_t* translation) {
-    fx4x3_t model_matrix, tmp, model_view_matrix;
-
-    fx4x3_rotation_translation(&model_matrix, rotation, translation);
-
-    fx4x3_mul(&tmp, &model_matrix, &scrap2_mesh_adjust_matrix);
-    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
-
-    draw_mesh(&model_view_matrix,
-        scrap2_num_indices, scrap2_num_vertices,
-        scrap2_indices, scrap2_face_colors, scrap2_vertices);
-}
-
-static void draw_scrap3(const fx4x3_t* view_matrix, const fx4_t* rotation,
-    const fx3_t* translation) {
-    fx4x3_t model_matrix, tmp, model_view_matrix;
-
-    fx4x3_rotation_translation(&model_matrix, rotation, translation);
-
-    fx4x3_mul(&tmp, &model_matrix, &scrap3_mesh_adjust_matrix);
-    fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
-
-    draw_mesh(&model_view_matrix,
-        scrap3_num_indices, scrap3_num_vertices,
-        scrap3_indices, scrap3_face_colors, scrap3_vertices);
-}
-
-#define DEBRIS_CLIP_BORDER 32
-#define DEBRIS_LEFT_CLIP (-DEBRIS_CLIP_BORDER << RASTER_SUBPIXEL_BITS)
-#define DEBRIS_RIGHT_CLIP ((SCREEN_WIDTH + DEBRIS_CLIP_BORDER) << RASTER_SUBPIXEL_BITS)
-#define DEBRIS_TOP_CLIP (-DEBRIS_CLIP_BORDER << RASTER_SUBPIXEL_BITS)
-#define DEBRIS_BOTTOM_CLIP ((SCREEN_HEIGHT + DEBRIS_CLIP_BORDER) << RASTER_SUBPIXEL_BITS)
-
-static void draw_debris(const fx4x3_t* view_matrix) {
-    fx4_t rotation;
-    fx_t rotation_angle;
-    fx3_t transformed_position;
-    const fx3_t* position_iter = debris_positions;
-    const fx_t* rotation_iter = debris_rotations;
-    uint16_t i;
-    for (i = 0; i < NUM_DEBRIS; ++i) {
-        const fx3_t* position = position_iter++;
-        rotation_angle = *rotation_iter++;
-
-        fx_transform_point(&transformed_position, view_matrix, position);
-        if (transformed_position.z < NEAR_CLIP)
-            continue;
-
-        project_to_screen(&transformed_position);
-        if (transformed_position.x < DEBRIS_LEFT_CLIP ||
-            transformed_position.x > DEBRIS_RIGHT_CLIP ||
-            transformed_position.y < DEBRIS_TOP_CLIP ||
-            transformed_position.y > DEBRIS_BOTTOM_CLIP)
-            continue;
-
-        fx_quat_rotation_axis_angle(&rotation, &debris_rotation_axes[i], rotation_angle);
-
-        switch (i & 3) {
-            case 0:
-                draw_scrap(view_matrix, &rotation, position);
-                break;
-            case 1:
-                draw_scrap2(view_matrix, &rotation, position);
-                break;
-            case 2:
-                draw_scrap3(view_matrix, &rotation, position);
-                break;
-            case 3:
-                draw_asteroid(view_matrix, &rotation, position);
-                break;
-        }
-    }
-}
-
 #define TARGETING_BOX_HALF_WIDTH 12
 #define TARGETING_BOX_HALF_HEIGHT 10
 
@@ -666,6 +269,20 @@ static void draw_targeting(const fx4x3_t* view_matrix, const fx3_t* target_posit
         p.x + TARGETING_BOX_HALF_WIDTH,
         p.y + TARGETING_BOX_HALF_HEIGHT,
         1);
+}
+
+static void draw_help() {
+    int16_t y = 4;
+    draw_text("build 2023-09-29", 4, y, 4); y += 12;
+    draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
+    draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
+    draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
+    draw_text("b: Run benchmark (result is shown in blue next to fps)", 4, y, 4); y += 6;
+    draw_text("1-5: Toggle rendering (stars, debris, ship, texts, fps)", 4, y, 4); y += 6;
+    draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
+    draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;
+    draw_text("https://aarnig.itch.io/dos-com-jam", 4, y, 4); y += 6;
+    draw_text("aarni.gratseff@gmail.com", 4, y, 4); y += 6;
 }
 
 static const char* const TEXT = "2669, Gemini sector, Troy system";
@@ -707,7 +324,6 @@ static void draw_texts() {
 
 static void draw() {
     fx4x3_t view_matrix;
-
     setup_view_matrix(&view_matrix);
 
     if (stars_enabled)
@@ -724,17 +340,7 @@ static void draw() {
     if (!is_benchmark_running()) {
         if (texts_enabled) {
             if (help) {
-                int16_t y = 4;
-                draw_text("build 2023-09-29", 4, y, 4); y += 12;
-                draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
-                draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
-                draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
-                draw_text("b: Run benchmark (result is shown in blue next to fps)", 4, y, 4); y += 6;
-                draw_text("1-5: Toggle rendering (stars, debris, ship, texts, fps)", 4, y, 4); y += 6;
-                draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
-                draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;
-                draw_text("https://aarnig.itch.io/dos-com-jam", 4, y, 4); y += 6;
-                draw_text("aarni.gratseff@gmail.com", 4, y, 4); y += 6;
+                draw_help();
             } else {
                 draw_texts();
             }
@@ -763,17 +369,7 @@ static void draw() {
     }
 }
 
-static void init_mesh_adjustment_matrix(fx4x3_t* m, const fx3_t* size, const fx3_t* center) {
-    fx4x3_identity(m);
-    m->m[FX4X3_00] = size->x << 4;
-    m->m[FX4X3_11] = size->y << 4;
-    m->m[FX4X3_22] = size->z << 4;
-    m->m[FX4X3_30] = center->x >> 4;
-    m->m[FX4X3_31] = center->y >> 4;
-    m->m[FX4X3_32] = center->z >> 4;
-}
-
-static void music_update() {
+static void update_music() {
     static uint32_t time_accumulator = 0;
     static uint32_t next_delta_time = 1000000UL;
     static uint16_t event_index = 0;
@@ -823,22 +419,100 @@ static void music_update() {
     }
 }
 
-static volatile uint32_t sfx_event_duration = 0;
+#define MAX_SFX_EVENTS 16
 
-static void sfx_update() {
-    if (sfx_event_duration != 0) {
-        if (sfx_event_duration >= TIMER_TICK_USEC) {
-            sfx_event_duration -= TIMER_TICK_USEC;
+typedef struct sfx_event_t {
+    uint8_t type;
+    uint32_t duration;
+    uint32_t time_left;
+} sfx_event_t;
+
+static volatile sfx_event_t sfx_events[MAX_SFX_EVENTS] = { 0 };
+
+typedef struct sfx_event_type_t {
+    uint32_t duration;
+    uint32_t program;
+    uint32_t note;
+    uint32_t velocity;
+} sfx_event_type_t;
+
+#define NUM_SFX_EVENT_TYPES 2
+
+static const sfx_event_type_t sfx_event_types[] = {
+    { 60000, 0, 0, 0 },
+    { 60000, 80, 69, 24 },
+    { 80000, 80, 57, 24 },
+};
+
+static const sfx_event_type_t* get_sfx_event_type_data(uint8_t type) {
+    aw_assert(type != 0 && type < NUM_SFX_EVENT_TYPES + 1);
+    return &sfx_event_types[type - 1];
+}
+
+static void update_sfx() {
+    uint8_t i;
+    volatile sfx_event_t* e = &sfx_events[0];
+    if (e->time_left != 0) {
+        const sfx_event_type_t* t = get_sfx_event_type_data(e->type);
+        if (e->time_left >= TIMER_TICK_USEC) {
+            if (e->time_left == e->duration) {
+                if (t->velocity != 0)
+                    opl_play(OPL_SFX_CHANNEL, t->program, t->note, t->velocity);
+            }
+
+            e->time_left -= TIMER_TICK_USEC;
         } else {
-            opl_stop(OPL_SFX_CHANNEL);
+            if (t->velocity != 0)
+                opl_stop(OPL_SFX_CHANNEL);
+
+            e->type = 0;
+            e->time_left = 0;
         }
     }
+
+    if (e->time_left == 0) {
+        for (i = 0; i < MAX_SFX_EVENTS - 1; ++i) {
+            sfx_events[i] = sfx_events[i + 1];
+        }
+
+        sfx_events[MAX_SFX_EVENTS - 1].type = 0;
+    }
+}
+
+static inline void push_sfx_event(uint8_t type) {
+    uint8_t i;
+    for (i = 0; i < MAX_SFX_EVENTS; ++i) {
+        if (!sfx_events[i].type) {
+            sfx_events[i].type = type;
+            sfx_events[i].duration = get_sfx_event_type_data(type)->duration;
+            sfx_events[i].time_left = sfx_events[i].duration;
+            break;
+        }
+    }
+}
+
+static inline void sfx_blip() {
+    _disable();
+    push_sfx_event(1);
+    push_sfx_event(2);
+    push_sfx_event(1);
+    push_sfx_event(2);
+    push_sfx_event(1);
+    push_sfx_event(2);
+    _enable();
+}
+
+static inline void sfx_blip_error() {
+    _disable();
+    push_sfx_event(1);
+    push_sfx_event(2);
+    _enable();
 }
 
 void timer_update() {
     if (opl) {
         if (music_enabled) {
-            music_update();
+            update_music();
             music_stopped = 0;
         } else if (!music_stopped) {
             uint8_t i;
@@ -849,7 +523,7 @@ void timer_update() {
         }
 
         if (sfx_enabled) {
-            sfx_update();
+            update_sfx();
             sfx_stopped = 0;
         } else {
             opl_stop(OPL_SFX_CHANNEL);
@@ -867,10 +541,7 @@ static void update_input() {
                 break;
 
             case 'a':
-                _disable();
-                sfx_event_duration = 60000;
-                opl_play(OPL_SFX_CHANNEL, 80, 69, 24);
-                _enable();
+                sfx_blip();
                 break;
 
             case '1':
@@ -920,6 +591,132 @@ static void update_input() {
     }
 }
 
+#define INVALID_KEY 0xff
+
+static volatile int extended_key = 0;
+
+static uint8_t translate_key(uint32_t code) {
+    switch (code) {
+        case 0x01: return KEY_ESC;
+        case 0x1c: return KEY_ENTER;
+        case 0x39: return KEY_SPACE;
+        case 0x0e: return KEY_BACKSPACE;
+        case 0x0f: return KEY_TAB;
+
+        case 0x2a: return KEY_LSHIFT;
+        case 0x36: return KEY_RSHIFT;
+        case 0x1d: return KEY_LCTRL;
+        case 0x38: return KEY_LALT;
+
+        case 0x48: return KEY_UP;
+        case 0x50: return KEY_DOWN;
+        case 0x4b: return KEY_LEFT;
+        case 0x4d: return KEY_RIGHT;
+
+        case 0x02: return KEY_1;
+        case 0x03: return KEY_2;
+        case 0x04: return KEY_3;
+        case 0x05: return KEY_4;
+        case 0x06: return KEY_5;
+        case 0x07: return KEY_6;
+        case 0x08: return KEY_7;
+        case 0x09: return KEY_8;
+        case 0x0a: return KEY_9;
+        case 0x0b: return KEY_0;
+
+        case 0x1e: return KEY_A;
+        case 0x30: return KEY_B;
+        case 0x2e: return KEY_C;
+        case 0x20: return KEY_D;
+        case 0x12: return KEY_E;
+        case 0x21: return KEY_F;
+        case 0x22: return KEY_G;
+        case 0x23: return KEY_H;
+        case 0x17: return KEY_I;
+        case 0x24: return KEY_J;
+        case 0x25: return KEY_K;
+        case 0x26: return KEY_L;
+        case 0x32: return KEY_M;
+        case 0x31: return KEY_N;
+        case 0x18: return KEY_O;
+        case 0x19: return KEY_P;
+        case 0x10: return KEY_Q;
+        case 0x13: return KEY_R;
+        case 0x1f: return KEY_S;
+        case 0x14: return KEY_T;
+        case 0x16: return KEY_U;
+        case 0x2f: return KEY_V;
+        case 0x11: return KEY_W;
+        case 0x2d: return KEY_X;
+        case 0x15: return KEY_Y;
+        case 0x2c: return KEY_Z;
+
+        case 0x3b: return KEY_F1;
+        case 0x3c: return KEY_F2;
+        case 0x3d: return KEY_F3;
+        case 0x3e: return KEY_F4;
+        case 0x3f: return KEY_F5;
+        case 0x40: return KEY_F6;
+        case 0x41: return KEY_F7;
+        case 0x42: return KEY_F8;
+        case 0x43: return KEY_F9;
+        case 0x44: return KEY_F10;
+        case 0x57: return KEY_F11;
+        case 0x58: return KEY_F12;
+
+        case 0x29: return KEY_TILDE;
+
+        case 0x33: return KEY_COMMA;
+        case 0x34: return KEY_PERIOD;
+        case 0x35: return KEY_HYPHEN;
+        case 0x2b: return KEY_ASTERISK;
+        case 0x0c: return KEY_PLUS;
+        case 0x56: return KEY_ANGLE_BRACKETS;
+
+        case 0x11c: return KEY_KEYPAD_ENTER;
+
+        case 0x11d: return KEY_RCTRL;
+        case 0x138: return KEY_RALT;
+
+        case 0x148: return KEY_GREY_UP;
+        case 0x150: return KEY_GREY_DOWN;
+        case 0x14b: return KEY_GREY_LEFT;
+        case 0x14d: return KEY_GREY_RIGHT;
+
+        case 0x152: return KEY_INSERT;
+        case 0x153: return KEY_DELETE;
+        case 0x147: return KEY_HOME;
+        case 0x14f: return KEY_END;
+        case 0x149: return KEY_PAGE_UP;
+        case 0x151: return KEY_PAGE_DOWN;
+
+        default: return INVALID_KEY;
+    }
+}
+
+#define KEY_BUFFER_SIZE 256
+static volatile uint8_t key_buffer[KEY_BUFFER_SIZE];
+static volatile uint32_t key_buffer_position = 0;
+
+void keyb_key(uint8_t code) {
+    if (code != 0xe0) {
+        uint8_t key = translate_key((code & 0x7f) | (extended_key ? 0x100 : 0));
+        if (key != INVALID_KEY) {
+            int up = (code & 0x80) == 0x80;
+            aw_assert(key_buffer_position < KEY_BUFFER_SIZE);
+            key_buffer[key_buffer_position] = key | (up ? KEY_UP_FLAG : 0);
+            key_buffer_position = (key_buffer_position + 1) & (KEY_BUFFER_SIZE - 1);
+
+            if (key == KEY_ESC)
+                quit = 1;
+        }
+
+        extended_key = 0;
+    } else {
+        extended_key = 1;
+    }
+}
+
 void main() {
     aw_assert(ship_num_indices % 3 == 0);
     aw_assert(sizeof(ship_vertices) == ship_num_vertices * 3);
@@ -928,19 +725,13 @@ void main() {
 
     //
 
-    init_mesh_adjustment_matrix(&ship_mesh_adjust_matrix, &ship_size, &ship_center);
-    init_mesh_adjustment_matrix(&asteroid_mesh_adjust_matrix, &asteroid_size, &asteroid_center);
-    init_mesh_adjustment_matrix(&scrap_mesh_adjust_matrix, &scrap_size, &scrap_center);
-    init_mesh_adjustment_matrix(&scrap2_mesh_adjust_matrix, &scrap2_size, &scrap2_center);
-    init_mesh_adjustment_matrix(&scrap3_mesh_adjust_matrix, &scrap3_size, &scrap3_center);
-
+    init_meshes();
     init_stars();
     init_debris();
 
     //
 
-    dblbuf = (uint8_t __far*)_fmalloc(SCREEN_NUM_PIXELS);
-    if (!dblbuf)
+    if (!dblbuf_allocate())
         goto exit;
 
     tm_buffer = (int16_t __far*)_fmalloc(sizeof(int16_t) * TM_BUFFER_SIZE);
@@ -959,6 +750,7 @@ void main() {
     opl_warmup();
 
     timer_init(); timer_initialized = 1;
+    keyb_init(); keyboard_initialized = 1;
 
     vga_set_mode(0x13);
 
@@ -988,87 +780,34 @@ void main() {
         previous_frame_ticks = frame_start_ticks;
         frame_dt = mul32(ticks_delta, TIMER_TICK_USEC);
 
-        fps.time_accumulator += frame_dt;
-        if (fps.time_accumulator >= 1000000) {
-            fps.average = div32(mul32(fps.frame_accumulator, 1000000), fps.time_accumulator);
-            fps.time_accumulator = 0;
-            fps.frame_accumulator = 0;
-        }
-
-        fps.frame_accumulator++;
-
+        update_fps(frame_dt);
         update_timing(frame_dt);
         update_input();
         update();
 
-#if !defined(INLINE_ASM)
-        _fmemset(dblbuf, 0x08, SCREEN_NUM_PIXELS);
-#else
-        __asm {
-            push es
-            push edi
-
-            mov eax, 0x08080808
-
-            mov edx, dblbuf
-            movzx edi, dx
-            shr edx, 16
-            mov es, dx
-
-            mov cx, SCREEN_NUM_PIXELS
-            shr cx, 2
-
-            rep stosd
-
-            pop edi
-            pop es
-        }
-#endif
+        dblbuf_clear();
 
         draw();
 
         if (vsync && !is_benchmark_running())
             vga_wait_for_retrace();
 
-#if !defined(INLINE_ASM)
-        _fmemcpy(VGA, dblbuf, SCREEN_NUM_PIXELS);
-#else
-        __asm {
-            push es
-            push ds
-            push edi
-            push esi
-
-            mov edx, dblbuf
-            movzx esi, dx
-            shr edx, 16
-            mov ds, dx
-
-            mov dx, 0xa000
-            mov es, dx
-            xor edi, edi
-
-            mov cx, SCREEN_NUM_PIXELS
-            shr cx, 2
-
-            rep movsd
-
-            pop esi
-            pop edi
-            pop ds
-            pop es
-        }
-#endif
+        dblbuf_copy_to_screen();
     }
 
 exit:
-    _ffree(dblbuf);
+    dblbuf_release();
     _ffree(tm_buffer);
     _ffree(draw_buffer);
     _ffree(sort_buffer);
+
     vga_set_mode(0x3);
+
+    if (keyboard_initialized) keyb_cleanup();
     if (timer_initialized) timer_cleanup();
+
     opl_done();
+
     putz(exit_message);
     set_text_cursor(1, 0);
     kb_clear_buffer();
