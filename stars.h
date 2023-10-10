@@ -53,7 +53,7 @@ static void draw_stars(const fx4x3_t* view_matrix) {
         v.x = (*p_iter++) << 9;
         v.y = (*p_iter++) << 9;
         v.z = (*p_iter++) << 9;
-        fx_transform_vector_ip(view_matrix, &v);
+        fx_transform_vector_ip((const fx3x3_t*)view_matrix, &v);
 
         if (v.z < NEAR_CLIP)
             continue;

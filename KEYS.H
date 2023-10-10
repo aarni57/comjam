@@ -106,13 +106,4 @@ enum {
 #define KEY_UP_FLAG 0x80
 #define KEY_INDEX_MASK 0x7f
 
-#define KEY_STATE_DOWN 1
-#define KEY_STATE_DOWN_REPEAT 2
-#define KEY_STATE_CHANGED_TO_DOWN 4
-#define KEY_STATE_PRESSED 8
-
-#define KEY_MODIFIER_CTRL 16
-#define KEY_MODIFIER_ALT 32
-#define KEY_MODIFIER_SHIFT 64
-
-#endif // AW_KEYS_H
+#endif

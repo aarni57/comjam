@@ -28,12 +28,12 @@
 
 //
 
-#include "keys.h"
+#include "timer.h"
+#include "keyb.h"
 #include "vga.h"
 #include "minmax.h"
 #include "util.h"
 #include "pal.h"
-#include "song.h"
 
 //
 
@@ -50,35 +50,44 @@
 static int opl = 0;
 #include "opl.h"
 
+#include "sfx.h"
+#include "music.h"
+
+//
+
+static volatile uint8_t music_enabled = 1;
+static volatile uint8_t sfx_enabled = 1;
+
+void timer_update() {
+    static uint8_t music_stopped = 0;
+    static uint8_t sfx_stopped = 0;
+
+    if (opl) {
+        if (music_enabled) {
+            update_music();
+            music_stopped = 0;
+        } else if (!music_stopped) {
+            uint8_t i;
+            for (i = 0; i < NUM_OPL_MUSIC_CHANNELS; ++i)
+                opl_stop(i);
+
+            music_stopped = 1;
+        }
+
+        if (sfx_enabled) {
+            update_sfx();
+            sfx_stopped = 0;
+        } else {
+            opl_stop(OPL_SFX_CHANNEL);
+            sfx_stopped = 1;
+        }
+    }
+}
+
 //
 
 static uint8_t timer_initialized = 0;
-
-volatile uint32_t timer_ticks;
-
-// defined in timer.asm
-void timer_init();
-void timer_cleanup();
-
-static inline uint32_t read_timer_ticks() {
-    uint32_t r;
-    _disable();
-    r = timer_ticks;
-    _enable();
-    return r;
-}
-
-#define TIMER_TICK_USEC 858
-
-//
-
 static uint8_t keyboard_initialized = 0;
-
-// defined in keyb.asm
-void keyb_init();
-void keyb_cleanup();
-
-//
 
 static const char* exit_message = "JEMM unloaded... Not really :-)";
 
@@ -91,13 +100,6 @@ static uint8_t debris_enabled = 1;
 static uint8_t ship_enabled = 1;
 static uint8_t texts_enabled = 1;
 static uint8_t fps_enabled = 1;
-
-static volatile uint8_t music_enabled = 1;
-static volatile uint8_t music_stopped = 0;
-static volatile uint16_t music_volume = 256;
-static volatile uint8_t sfx_enabled = 1;
-static volatile uint8_t sfx_stopped = 0;
-static volatile uint16_t sfx_volume = 256;
 
 static uint8_t benchmark_timer = 0;
 static uint32_t benchmark_start_tick = 0;
@@ -124,7 +126,7 @@ static void update_fps(uint32_t frame_dt) {
 
 //
 
-#define TICK_LENGTH_US (1000000UL / 120)
+#define TICK_LENGTH_US (1000000UL / 128)
 
 static struct {
     uint32_t current_frame;
@@ -136,7 +138,26 @@ static struct {
 static struct {
     uint16_t targeting_timer;
     fx3_t target_position;
-} game_state = { 0 };
+
+    fx3_t forward;
+    fx3_t up;
+
+    fx_t yaw_speed;
+    fx_t pitch_speed;
+
+    fx3_t linear_velocity;
+
+    uint8_t turning_left;
+    uint8_t turning_right;
+    uint8_t turning_up;
+    uint8_t turning_down;
+} gameplay = { 0 };
+
+static void init_gameplay() {
+    memset(&gameplay, 0, sizeof(gameplay));
+    gameplay.forward.y = FX_ONE;
+    gameplay.up.z = FX_ONE;
+}
 
 //
 
@@ -148,11 +169,12 @@ static void restart() {
 
     xorshift32_reset();
     init_debris();
+    init_gameplay();
 }
 
 //
 
-#define BENCHMARK_DURATION_FRAMES 64
+#define BENCHMARK_DURATION_FRAMES 128
 #define BENCHMARK_STEP_TICKS 32
 
 static inline int is_benchmark_running() {
@@ -168,7 +190,7 @@ static inline void start_benchmark() {
 
 static inline void end_benchmark() {
     uint32_t num_ticks = read_timer_ticks() - benchmark_start_tick;
-    benchmark_result = num_ticks ? fx_rcp(num_ticks << 10) : 0;
+    benchmark_result = num_ticks ? fx_rcp(num_ticks << 9) : 0;
     benchmark_timer = 0;
     restart();
 }
@@ -197,13 +219,87 @@ static void update_timing(uint32_t dt_us) {
     timing.current_tick += timing.ticks_to_advance;
 }
 
-static void update() {
-    uint16_t i = 0;
-    for (i = 0; i < timing.ticks_to_advance; ++i) {
-        update_debris();
-    }
+#define TURNING_ACCELERATION 500
+#define TURNING_SPEED_DAMPENING 62800
+#define MAX_TURNING_SPEED FX_ONE
+#define TURNING_SPEED_LOW_LIMIT 64
 
-    game_state.target_position = debris_positions[0];
+static const fx4_t IDENTITY_QUAT = { 0, 0, 0, FX_ONE };
+
+static void update() {
+    if (is_benchmark_running()) {
+        fx3_t zero_vec = { 0 };
+        uint16_t i = 0;
+        for (i = 0; i < timing.ticks_to_advance; ++i) {
+            update_debris(&zero_vec, &zero_vec);
+        }
+    } else {
+        uint16_t i = 0;
+        for (i = 0; i < timing.ticks_to_advance; ++i) {
+            {
+                {
+                    fx3_t right;
+                    fx4_t yaw_rotation, pitch_rotation;
+
+                    fx3_cross(&right, &gameplay.forward, &gameplay.up);
+
+                    gameplay.yaw_speed = fx_mul(gameplay.yaw_speed, TURNING_SPEED_DAMPENING);
+                    gameplay.pitch_speed = fx_mul(gameplay.pitch_speed, TURNING_SPEED_DAMPENING);
+
+                    if (gameplay.turning_left)
+                        gameplay.yaw_speed += TURNING_ACCELERATION;
+
+                    if (gameplay.turning_right)
+                        gameplay.yaw_speed -= TURNING_ACCELERATION;
+
+                    if (gameplay.turning_up)
+                        gameplay.pitch_speed += TURNING_ACCELERATION;
+
+                    if (gameplay.turning_down)
+                        gameplay.pitch_speed -= TURNING_ACCELERATION;
+
+                    gameplay.yaw_speed = fx_clamp(gameplay.yaw_speed, -MAX_TURNING_SPEED, MAX_TURNING_SPEED);
+                    gameplay.pitch_speed = fx_clamp(gameplay.pitch_speed, -MAX_TURNING_SPEED, MAX_TURNING_SPEED);
+
+                    if (fx_abs(gameplay.yaw_speed) > TURNING_SPEED_LOW_LIMIT)
+                        fx_quat_rotation_axis_angle(&yaw_rotation, &gameplay.up, gameplay.yaw_speed >> 7);
+                    else
+                        yaw_rotation = IDENTITY_QUAT;
+
+                    if (fx_abs(gameplay.pitch_speed) > TURNING_SPEED_LOW_LIMIT)
+                        fx_quat_rotation_axis_angle(&pitch_rotation, &right, gameplay.pitch_speed >> 7);
+                    else
+                        pitch_rotation = IDENTITY_QUAT;
+
+                    {
+                        fx3x3_t rm;
+                        fx4_t r;
+
+                        fx_quat_mul(&r, &yaw_rotation, &pitch_rotation);
+                        fx4_normalize_ip(&r);
+
+                        fx3x3_rotation(&rm, &r);
+
+                        fx_transform_vector_ip(&rm, &gameplay.forward);
+                        fx_transform_vector_ip(&rm, &gameplay.up);
+
+                        fx3_normalize_ip(&gameplay.forward);
+                        fx3_normalize_ip(&gameplay.up);
+                    }
+                }
+            }
+
+            {
+                fx3_t camera_target;
+                camera_target.x = gameplay.forward.x >> 1;
+                camera_target.y = gameplay.forward.y >> 1;
+                camera_target.z = gameplay.forward.z >> 1;
+                update_debris(&camera_target, &gameplay.linear_velocity);
+            }
+        }
+
+        gameplay.target_position = debris_positions[0];
+    }
 }
 
 static void draw_fps() {
@@ -214,12 +310,8 @@ static void draw_fps() {
     draw_text(buf, 320 - 24, 4, 4);
 }
 
-static const fx3_t axis_x = { FX_ONE, 0, 0 };
-static const fx3_t axis_y = { 0, FX_ONE, 0 };
-static const fx3_t axis_z = { 0, 0, FX_ONE };
-
-static void setup_view_matrix(fx4x3_t* view_matrix) {
-    fx3_t eye, target;
+static void setup_benchmark_view_matrix(fx4x3_t* view_matrix) {
+    fx3_t eye, target, up;
     fx_t t1, t2, s1, c1, s2;
 
     t1 = 25000 + (fx_t)timing.current_tick * 20;
@@ -241,7 +333,11 @@ static void setup_view_matrix(fx4x3_t* view_matrix) {
     target.y = 0;
     target.z = 0;
 
-    fx4x3_look_at(view_matrix, &eye, &target);
+    up.x = 0;
+    up.y = 0;
+    up.z = FX_ONE;
+
+    fx4x3_look_at(view_matrix, &eye, &target, &up);
 }
 
 #define TARGETING_BOX_HALF_WIDTH 12
@@ -323,21 +419,31 @@ static void draw_texts() {
 }
 
 static void draw() {
-    fx4x3_t view_matrix;
-    setup_view_matrix(&view_matrix);
+    if (is_benchmark_running()) {
+        fx4x3_t view_matrix;
+        setup_benchmark_view_matrix(&view_matrix);
 
-    if (stars_enabled)
         draw_stars(&view_matrix);
-
-    if (ship_enabled)
+        draw_debris(&view_matrix);
         draw_ship(&view_matrix);
 
-    if (debris_enabled)
-        draw_debris(&view_matrix);
+        flush_mesh_draw_buffer(draw_mode);
+    } else {
+        fx3_t zero_vec = { 0, 0, 0 };
+        fx4x3_t view_matrix;
+        fx4x3_look_at(&view_matrix, &zero_vec, &gameplay.forward, &gameplay.up);
 
-    flush_mesh_draw_buffer(draw_mode);
+        if (stars_enabled)
+            draw_stars(&view_matrix);
 
-    if (!is_benchmark_running()) {
+        if (debris_enabled)
+            draw_debris(&view_matrix);
+
+        if (ship_enabled && 0)
+            draw_ship(&view_matrix);
+
+        flush_mesh_draw_buffer(draw_mode);
+
         if (texts_enabled) {
             if (help) {
                 draw_help();
@@ -369,181 +475,67 @@ static void draw() {
     }
 }
 
-static void update_music() {
-    static uint32_t time_accumulator = 0;
-    static uint32_t next_delta_time = 1000000UL;
-    static uint16_t event_index = 0;
-    static uint8_t channel_programs[NUM_OPL_MUSIC_CHANNELS] = { 0 };
-    uint8_t v;
-
-#if defined(INLINE_ASM)
-    _asm {
-        .386
-        add dword ptr time_accumulator, TIMER_TICK_USEC
-    }
-#else
-    time_accumulator += TIMER_TICK_USEC;
-#endif
-
-    while (time_accumulator >= next_delta_time) {
-        time_accumulator -= next_delta_time;
-
-        v = song_events[event_index++];
-        if (v == 255) {
-            event_index = 0;
-            next_delta_time = 0;
-        } else if (v & 0x80) {
-            uint8_t v2 = song_events[event_index++];
-            uint8_t v3 = song_events[event_index++];
-            next_delta_time = ((uint32_t)(v & ~0x80) << 16) | ((uint32_t)v2 << 8) | v3;
-            next_delta_time <<= 3;
-        } else if (v & 0x40) {
-            uint8_t v2 = song_events[event_index++];
-            next_delta_time = ((uint32_t)(v & ~0x40) << 8) | v2;
-            next_delta_time <<= 3;
-        } else if (v & 0x20) {
-            channel_programs[v & ~0x20] = song_events[event_index++];
-            next_delta_time = 0;
-        } else if (v & 0x10) {
-            opl_stop(v & ~0x10);
-            next_delta_time = 0;
-        } else {
-            uint8_t note, velocity;
-            aw_assert(v < NUM_OPL_MUSIC_CHANNELS);
-            note = song_events[event_index++];
-            velocity = song_events[event_index++];
-            velocity = ((uint16_t)velocity * music_volume) >> 8;
-            opl_play(v, channel_programs[v], note, velocity);
-            next_delta_time = 0;
-        }
-    }
-}
-
-#define MAX_SFX_EVENTS 16
-
-typedef struct sfx_event_t {
-    uint8_t type;
-    uint32_t duration;
-    uint32_t time_left;
-} sfx_event_t;
-
-static volatile sfx_event_t sfx_events[MAX_SFX_EVENTS] = { 0 };
-
-typedef struct sfx_event_type_t {
-    uint32_t duration;
-    uint32_t program;
-    uint32_t note;
-    uint32_t velocity;
-} sfx_event_type_t;
-
-#define NUM_SFX_EVENT_TYPES 2
-
-static const sfx_event_type_t sfx_event_types[] = {
-    { 60000, 0, 0, 0 },
-    { 60000, 80, 69, 24 },
-    { 80000, 80, 57, 24 },
-};
-
-static const sfx_event_type_t* get_sfx_event_type_data(uint8_t type) {
-    aw_assert(type != 0 && type < NUM_SFX_EVENT_TYPES + 1);
-    return &sfx_event_types[type - 1];
-}
-
-static void update_sfx() {
-    uint8_t i;
-    volatile sfx_event_t* e = &sfx_events[0];
-    if (e->time_left != 0) {
-        const sfx_event_type_t* t = get_sfx_event_type_data(e->type);
-        if (e->time_left >= TIMER_TICK_USEC) {
-            if (e->time_left == e->duration) {
-                if (t->velocity != 0)
-                    opl_play(OPL_SFX_CHANNEL, t->program, t->note, t->velocity);
-            }
-
-            e->time_left -= TIMER_TICK_USEC;
-        } else {
-            if (t->velocity != 0)
-                opl_stop(OPL_SFX_CHANNEL);
-
-            e->type = 0;
-            e->time_left = 0;
-        }
-    }
-
-    if (e->time_left == 0) {
-        for (i = 0; i < MAX_SFX_EVENTS - 1; ++i) {
-            sfx_events[i] = sfx_events[i + 1];
-        }
-
-        sfx_events[MAX_SFX_EVENTS - 1].type = 0;
-    }
-}
-
-static inline void push_sfx_event(uint8_t type) {
-    uint8_t i;
-    for (i = 0; i < MAX_SFX_EVENTS; ++i) {
-        if (!sfx_events[i].type) {
-            sfx_events[i].type = type;
-            sfx_events[i].duration = get_sfx_event_type_data(type)->duration;
-            sfx_events[i].time_left = sfx_events[i].duration;
-            break;
-        }
-    }
-}
-
-static inline void sfx_blip() {
-    _disable();
-    push_sfx_event(1);
-    push_sfx_event(2);
-    push_sfx_event(1);
-    push_sfx_event(2);
-    push_sfx_event(1);
-    push_sfx_event(2);
-    _enable();
-}
-
-static inline void sfx_blip_error() {
-    _disable();
-    push_sfx_event(1);
-    push_sfx_event(2);
-    _enable();
-}
-
-void timer_update() {
-    if (opl) {
-        if (music_enabled) {
-            update_music();
-            music_stopped = 0;
-        } else if (!music_stopped) {
-            uint8_t i;
-            for (i = 0; i < NUM_OPL_MUSIC_CHANNELS; ++i)
-                opl_stop(i);
-
-            music_stopped = 1;
-        }
-
-        if (sfx_enabled) {
-            update_sfx();
-            sfx_stopped = 0;
-        } else {
-            opl_stop(OPL_SFX_CHANNEL);
-            sfx_stopped = 1;
-        }
-    }
-}
-
 static void update_input() {
-    if (kbhit()) {
-        char ch = getch();
-        switch (ch) {
-            case 27:
+    static uint8_t i = 0;
+    uint8_t current_position = key_buffer_position;
+
+    while (i != current_position) {
+        switch (key_buffer[i]) {
+            case KEY_GREY_LEFT: gameplay.turning_left = 1; break;
+            case KEY_GREY_LEFT | KEY_UP_FLAG: gameplay.turning_left = 0; break;
+            case KEY_GREY_RIGHT: gameplay.turning_right = 1; break;
+            case KEY_GREY_RIGHT | KEY_UP_FLAG: gameplay.turning_right = 0; break;
+            case KEY_GREY_UP: gameplay.turning_up = 1; break;
+            case KEY_GREY_UP | KEY_UP_FLAG: gameplay.turning_up = 0; break;
+            case KEY_GREY_DOWN: gameplay.turning_down = 1; break;
+            case KEY_GREY_DOWN | KEY_UP_FLAG: gameplay.turning_down = 0; break;
+
+            case KEY_ESC:
                 quit = 1;
                 break;
 
-            case 'a':
-                sfx_blip();
+            case KEY_1:
+                sfx_short_blip();
                 break;
 
+            case KEY_2:
+                sfx_select();
+                break;
+
+            case KEY_3:
+                sfx_back();
+                break;
+
+            case KEY_4:
+                sfx_processing();
+                break;
+
+            case KEY_5:
+                sfx_error();
+                break;
+
+            case KEY_V:
+                vsync ^= 1;
+                break;
+
+            case KEY_B:
+                if (!is_benchmark_running())
+                    start_benchmark();
+                break;
+
+            case KEY_H:
+                help ^= 1;
+                break;
+
+            default:
+                break;
+        }
+
+        i = (i + 1) & (KEY_BUFFER_SIZE - 1);
+    }
+
+#if 0
+        switch (ch) {
             case '1':
                 stars_enabled ^= 1;
                 break;
@@ -568,15 +560,6 @@ static void update_input() {
                 music_enabled ^= 1;
                 break;
 
-            case 'b':
-                if (!is_benchmark_running())
-                    start_benchmark();
-                break;
-
-            case 'v':
-                vsync ^= 1;
-                break;
-
             case 'w':
                 draw_mode ^= 1;
                 break;
@@ -589,132 +572,7 @@ static void update_input() {
                 break;
         }
     }
-}
-
-#define INVALID_KEY 0xff
-
-static volatile int extended_key = 0;
-
-static uint8_t translate_key(uint32_t code) {
-    switch (code) {
-        case 0x01: return KEY_ESC;
-        case 0x1c: return KEY_ENTER;
-        case 0x39: return KEY_SPACE;
-        case 0x0e: return KEY_BACKSPACE;
-        case 0x0f: return KEY_TAB;
-
-        case 0x2a: return KEY_LSHIFT;
-        case 0x36: return KEY_RSHIFT;
-        case 0x1d: return KEY_LCTRL;
-        case 0x38: return KEY_LALT;
-
-        case 0x48: return KEY_UP;
-        case 0x50: return KEY_DOWN;
-        case 0x4b: return KEY_LEFT;
-        case 0x4d: return KEY_RIGHT;
-
-        case 0x02: return KEY_1;
-        case 0x03: return KEY_2;
-        case 0x04: return KEY_3;
-        case 0x05: return KEY_4;
-        case 0x06: return KEY_5;
-        case 0x07: return KEY_6;
-        case 0x08: return KEY_7;
-        case 0x09: return KEY_8;
-        case 0x0a: return KEY_9;
-        case 0x0b: return KEY_0;
-
-        case 0x1e: return KEY_A;
-        case 0x30: return KEY_B;
-        case 0x2e: return KEY_C;
-        case 0x20: return KEY_D;
-        case 0x12: return KEY_E;
-        case 0x21: return KEY_F;
-        case 0x22: return KEY_G;
-        case 0x23: return KEY_H;
-        case 0x17: return KEY_I;
-        case 0x24: return KEY_J;
-        case 0x25: return KEY_K;
-        case 0x26: return KEY_L;
-        case 0x32: return KEY_M;
-        case 0x31: return KEY_N;
-        case 0x18: return KEY_O;
-        case 0x19: return KEY_P;
-        case 0x10: return KEY_Q;
-        case 0x13: return KEY_R;
-        case 0x1f: return KEY_S;
-        case 0x14: return KEY_T;
-        case 0x16: return KEY_U;
-        case 0x2f: return KEY_V;
-        case 0x11: return KEY_W;
-        case 0x2d: return KEY_X;
-        case 0x15: return KEY_Y;
-        case 0x2c: return KEY_Z;
-
-        case 0x3b: return KEY_F1;
-        case 0x3c: return KEY_F2;
-        case 0x3d: return KEY_F3;
-        case 0x3e: return KEY_F4;
-        case 0x3f: return KEY_F5;
-        case 0x40: return KEY_F6;
-        case 0x41: return KEY_F7;
-        case 0x42: return KEY_F8;
-        case 0x43: return KEY_F9;
-        case 0x44: return KEY_F10;
-        case 0x57: return KEY_F11;
-        case 0x58: return KEY_F12;
-
-        case 0x29: return KEY_TILDE;
-
-        case 0x33: return KEY_COMMA;
-        case 0x34: return KEY_PERIOD;
-        case 0x35: return KEY_HYPHEN;
-        case 0x2b: return KEY_ASTERISK;
-        case 0x0c: return KEY_PLUS;
-        case 0x56: return KEY_ANGLE_BRACKETS;
-
-        case 0x11c: return KEY_KEYPAD_ENTER;
-
-        case 0x11d: return KEY_RCTRL;
-        case 0x138: return KEY_RALT;
-
-        case 0x148: return KEY_GREY_UP;
-        case 0x150: return KEY_GREY_DOWN;
-        case 0x14b: return KEY_GREY_LEFT;
-        case 0x14d: return KEY_GREY_RIGHT;
-
-        case 0x152: return KEY_INSERT;
-        case 0x153: return KEY_DELETE;
-        case 0x147: return KEY_HOME;
-        case 0x14f: return KEY_END;
-        case 0x149: return KEY_PAGE_UP;
-        case 0x151: return KEY_PAGE_DOWN;
-
-        default: return INVALID_KEY;
-    }
-}
-
-#define KEY_BUFFER_SIZE 256
-static volatile uint8_t key_buffer[KEY_BUFFER_SIZE];
-static volatile uint32_t key_buffer_position = 0;
-
-void keyb_key(uint8_t code) {
-    if (code != 0xe0) {
-        uint8_t key = translate_key((code & 0x7f) | (extended_key ? 0x100 : 0));
-        if (key != INVALID_KEY) {
-            int up = (code & 0x80) == 0x80;
-            aw_assert(key_buffer_position < KEY_BUFFER_SIZE);
-            key_buffer[key_buffer_position] = key | (up ? KEY_UP_FLAG : 0);
-            key_buffer_position = (key_buffer_position + 1) & (KEY_BUFFER_SIZE - 1);
-
-            if (key == KEY_ESC)
-                quit = 1;
-        }
-
-        extended_key = 0;
-    } else {
-        extended_key = 1;
-    }
+#endif
 }
 
 void main() {
@@ -728,6 +586,7 @@ void main() {
     init_meshes();
     init_stars();
     init_debris();
+    init_gameplay();
 
     //
 

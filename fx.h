@@ -497,6 +497,16 @@ static inline void fx_quat_mul(fx4_t* r, const fx4_t* a, const fx4_t* b) {
 
 //
 
+#define FX3X3_00 0
+#define FX3X3_01 1
+#define FX3X3_02 2
+#define FX3X3_10 3
+#define FX3X3_11 4
+#define FX3X3_12 5
+#define FX3X3_20 6
+#define FX3X3_21 7
+#define FX3X3_22 8
+
 #define FX4X3_00 0
 #define FX4X3_01 1
 #define FX4X3_02 2
@@ -556,6 +566,32 @@ static inline void fx4x3_set_translation(fx4x3_t* m, const fx3_t* translation) {
     m->m[9] = translation->x;
     m->m[10] = translation->y;
     m->m[11] = translation->z;
+}
+
+static inline void fx3x3_rotation(fx3x3_t* m, const fx4_t* q) {
+    fx_t xx = fx_pow2(q->x);
+    fx_t xy = fx_mul_ptr(&q->x, &q->y);
+    fx_t xz = fx_mul_ptr(&q->x, &q->z);
+    fx_t xw = fx_mul_ptr(&q->x, &q->w);
+
+    fx_t yy = fx_pow2(q->y);
+    fx_t yz = fx_mul_ptr(&q->y, &q->z);
+    fx_t yw = fx_mul_ptr(&q->y, &q->w);
+
+    fx_t zz = fx_pow2(q->z);
+    fx_t zw = fx_mul_ptr(&q->z, &q->w);
+
+    m->m[FX3X3_00] = fx_clamp(FX_ONE - 2 * (yy + zz), -FX_ONE, FX_ONE);
+    m->m[FX3X3_01] = fx_clamp(         2 * (xy - zw), -FX_ONE, FX_ONE);
+    m->m[FX3X3_02] = fx_clamp(         2 * (xz + yw), -FX_ONE, FX_ONE);
+
+    m->m[FX3X3_10] = fx_clamp(         2 * (xy + zw), -FX_ONE, FX_ONE);
+    m->m[FX3X3_11] = fx_clamp(FX_ONE - 2 * (xx + zz), -FX_ONE, FX_ONE);
+    m->m[FX3X3_12] = fx_clamp(         2 * (yz - xw), -FX_ONE, FX_ONE);
+
+    m->m[FX3X3_20] = fx_clamp(         2 * (xz - yw), -FX_ONE, FX_ONE);
+    m->m[FX3X3_21] = fx_clamp(         2 * (yz + xw), -FX_ONE, FX_ONE);
+    m->m[FX3X3_22] = fx_clamp(FX_ONE - 2 * (xx + yy), -FX_ONE, FX_ONE);
 }
 
 static inline void fx4x3_rotation_translation(fx4x3_t* m, const fx4_t* q,
@@ -684,7 +720,7 @@ static inline void fx_transform_point(fx3_t* r, const fx4x3_t* m, const fx3_t* v
     fx_transform_point_ip(m, r);
 }
 
-static inline void fx_transform_vector_ip(const fx4x3_t* m, fx3_t* v) {
+static inline void fx_transform_vector_ip(const fx3x3_t* m, fx3_t* v) {
     int32_t x, y, z;
 #if !defined(INLINE_ASM)
     x = fx_mul(v->x, m->m[FX4X3_00]) + fx_mul(v->y, m->m[FX4X3_01]) + fx_mul(v->z, m->m[FX4X3_02]);
@@ -763,20 +799,19 @@ static inline void fx_transform_vector_ip(const fx4x3_t* m, fx3_t* v) {
     v->z = z;
 }
 
-static inline void fx_transform_vector(fx3_t* r, const fx4x3_t* m, const fx3_t* v) {
+static inline void fx_transform_vector(fx3_t* r, const fx3x3_t* m, const fx3_t* v) {
     *r = *v;
     fx_transform_vector_ip(m, r);
 }
 
-static const fx3_t world_up = { 0, 0, FX_ONE };
-
-static inline void fx4x3_look_at(fx4x3_t* m, const fx3_t* eye, const fx3_t* target) {
+static inline void fx4x3_look_at(fx4x3_t* m, const fx3_t* eye,
+    const fx3_t* target, const fx3_t* up) {
     fx3_t view_forward, view_right, view_up, view_translation;
 
     fx3_sub(&view_forward, target, eye);
     fx3_normalize_ip(&view_forward);
 
-    fx3_cross(&view_right, &view_forward, &world_up);
+    fx3_cross(&view_right, &view_forward, up);
     fx3_normalize_ip(&view_right);
 
     fx3_cross(&view_up, &view_right, &view_forward);
@@ -795,7 +830,7 @@ static inline void fx4x3_look_at(fx4x3_t* m, const fx3_t* eye, const fx3_t* targ
     m->m[FX4X3_22] = view_forward.z;
 
     fx3_neg(&view_translation, eye);
-    fx_transform_vector_ip(m, &view_translation);
+    fx_transform_vector_ip((const fx3x3_t*)m, &view_translation);
 
     m->m[FX4X3_30] = view_translation.x;
     m->m[FX4X3_31] = view_translation.y;

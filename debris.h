@@ -20,15 +20,15 @@ static inline void randomize_debris_properties(uint16_t i) {
         case 1:
         case 2:
             debris_rotation_speeds[i] = (fx_random_one() >> 7) + 256;
-            debris_speeds[i].x = (fx_random_one() >> 12);
-            debris_speeds[i].y = (fx_random_one() >> 12) - (FX_ONE >> 10);
-            debris_speeds[i].z = (fx_random_one() >> 12);
+            debris_speeds[i].x = fx_random_one() >> 12;
+            debris_speeds[i].y = fx_random_one() >> 12;
+            debris_speeds[i].z = fx_random_one() >> 12;
             break;
         case 3:
             debris_rotation_speeds[i] = (fx_random_one() >> 8) + 256;
-            debris_speeds[i].x = (fx_random_one() >> 13);
-            debris_speeds[i].y = (fx_random_one() >> 13) - (FX_ONE >> 10);
-            debris_speeds[i].z = (fx_random_one() >> 13);
+            debris_speeds[i].x = fx_random_one() >> 13;
+            debris_speeds[i].y = fx_random_one() >> 13;
+            debris_speeds[i].z = fx_random_one() >> 13;
             break;
     }
 }
@@ -45,26 +45,48 @@ static void init_debris() {
     }
 }
 
-static void update_debris() {
-    uint16_t i;
-    for (i = 0; i < NUM_DEBRIS; ++i) {
-        fx3_add_ip(&debris_positions[i], &debris_speeds[i]);
-        if (debris_positions[i].y <= -32768) {
-            debris_positions[i].y += 65536;
-            debris_positions[i].x = random_debris_x();
-            debris_positions[i].z = random_debris_x();
-        } else {
-            if (debris_positions[i].x <= -32768) {
-                debris_positions[i].x += 65536;
-            } else if (debris_positions[i].x >= 32768) {
-                debris_positions[i].x -= 65536;
-            }
+#define DEBRIS_BOX_SIZE 65536L
+#define DEBRIS_BOX_HALF_SIZE (DEBRIS_BOX_SIZE >> 1)
 
-            if (debris_positions[i].z <= -32768) {
-                debris_positions[i].z += 65536;
-            } else if (debris_positions[i].z >= 32768) {
-                debris_positions[i].z -= 65536;
-            }
+static void update_debris(const fx3_t* center, const fx3_t* movement) {
+    uint16_t i;
+    fx_t x_low, x_high, y_low, y_high, z_low, z_high;
+
+    x_low = center->x - DEBRIS_BOX_HALF_SIZE;
+    x_high = center->x + DEBRIS_BOX_HALF_SIZE;
+    y_low = center->y - DEBRIS_BOX_HALF_SIZE;
+    y_high = center->y + DEBRIS_BOX_HALF_SIZE;
+    z_low = center->z - DEBRIS_BOX_HALF_SIZE;
+    z_high = center->z + DEBRIS_BOX_HALF_SIZE;
+
+    for (i = 0; i < NUM_DEBRIS; ++i) {
+        fx3_t* p = &debris_positions[i];
+        fx3_add_ip(p, &debris_speeds[i]);
+
+        if (p->x <= x_low) {
+            p->x += DEBRIS_BOX_SIZE;
+            p->y = random_debris_x();
+            p->z = random_debris_x();
+        } else if (p->x >= x_high) {
+            p->x -= DEBRIS_BOX_SIZE;
+            p->y = random_debris_x();
+            p->z = random_debris_x();
+        } else if (p->y <= y_low) {
+            p->y += DEBRIS_BOX_SIZE;
+            p->x = random_debris_x();
+            p->z = random_debris_x();
+        } else if (p->y >= y_high) {
+            p->y -= DEBRIS_BOX_SIZE;
+            p->x = random_debris_x();
+            p->z = random_debris_x();
+        } else if (p->z <= z_low) {
+            p->z += DEBRIS_BOX_SIZE;
+            p->x = random_debris_x();
+            p->y = random_debris_x();
+        } else if (p->z >= z_high) {
+            p->z -= DEBRIS_BOX_SIZE;
+            p->x = random_debris_x();
+            p->y = random_debris_x();
         }
 
         debris_rotations[i] += debris_rotation_speeds[i];
