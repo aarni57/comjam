@@ -13,7 +13,7 @@ const uint16_t scrap3_indices[] = {
 };
 
 const uint8_t scrap3_face_colors[] = {
-75, 75, 67, 67, 67, 67, 1, 1, 1, 93, 93, 74, 74, 68, 68, 68,
+75, 75, 67, 67, 67, 67, 1, 1, 1, 1, 1, 74, 74, 68, 68, 68,
 };
 
 const int8_t scrap3_vertices[] = {

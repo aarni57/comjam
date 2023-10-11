@@ -62,6 +62,7 @@ static void update_debris(const fx3_t* center, const fx3_t* movement) {
     for (i = 0; i < NUM_DEBRIS; ++i) {
         fx3_t* p = &debris_positions[i];
         fx3_add_ip(p, &debris_speeds[i]);
+        fx3_add_ip(p, movement);
 
         if (p->x <= x_low) {
             p->x += DEBRIS_BOX_SIZE;

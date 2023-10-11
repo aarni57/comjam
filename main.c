@@ -147,10 +147,16 @@ static struct {
 
     fx3_t linear_velocity;
 
+    uint16_t set_speed;
+    uint16_t actual_speed;
+
     uint8_t turning_left;
     uint8_t turning_right;
     uint8_t turning_up;
     uint8_t turning_down;
+
+    uint8_t accelerating;
+    uint8_t decelerating;
 } gameplay = { 0 };
 
 static void init_gameplay() {
@@ -195,6 +201,60 @@ static inline void end_benchmark() {
     restart();
 }
 
+static void update_benchmark() {
+    fx3_t zero_vec = { 0 };
+    fx3_t debris_movement = { 0, -100, 0 };
+    uint16_t i = 0;
+    for (i = 0; i < timing.ticks_to_advance; ++i) {
+        update_debris(&zero_vec, &debris_movement);
+    }
+}
+
+static void draw_benchmark() {
+    fx4x3_t view_matrix;
+
+    {
+        fx3_t eye, target, up;
+        fx_t t1, t2, s1, c1, s2;
+
+        t1 = 25000 + (fx_t)timing.current_tick * 20;
+        t2 = fx_sin(-10000 + (fx_t)timing.current_tick * 13) / 12;
+
+        s1 = fx_sin(t1);
+        c1 = fx_cos(t1);
+        s2 = fx_sin(t2);
+
+        eye.x = s1;
+        eye.y = c1;
+        eye.z = s2;
+        fx3_normalize_ip(&eye);
+        eye.x >>= 2;
+        eye.y >>= 2;
+        eye.z >>= 2;
+
+        target.x = 0;
+        target.y = 0;
+        target.z = 0;
+
+        up.x = 0;
+        up.y = 0;
+        up.z = FX_ONE;
+
+        fx4x3_look_at(&view_matrix, &eye, &target, &up);
+    }
+
+    draw_stars(&view_matrix);
+    draw_debris(&view_matrix);
+
+    {
+        fx4_t rotation = { 0, 0, 0, FX_ONE };
+        fx3_t translation = { 0, 0, 0 };
+        draw_ship(&view_matrix, &rotation, &translation);
+    }
+
+    flush_mesh_draw_buffer(draw_mode);
+}
+
 //
 
 static void update_timing(uint32_t dt_us) {
@@ -224,82 +284,100 @@ static void update_timing(uint32_t dt_us) {
 #define MAX_TURNING_SPEED FX_ONE
 #define TURNING_SPEED_LOW_LIMIT 64
 
+#define MAX_SPEED 300
+#define SPEED_STEP 2
+
 static const fx4_t IDENTITY_QUAT = { 0, 0, 0, FX_ONE };
 
 static void update() {
-    if (is_benchmark_running()) {
-        fx3_t zero_vec = { 0 };
-        uint16_t i = 0;
-        for (i = 0; i < timing.ticks_to_advance; ++i) {
-            update_debris(&zero_vec, &zero_vec);
-        }
-    } else {
-        uint16_t i = 0;
-        for (i = 0; i < timing.ticks_to_advance; ++i) {
-            {
-                {
-                    fx3_t right;
-                    fx4_t yaw_rotation, pitch_rotation;
+    uint16_t i = 0;
+    for (i = 0; i < timing.ticks_to_advance; ++i) {
+        {
+            uint16_t previous_set_speed = gameplay.set_speed;
 
-                    fx3_cross(&right, &gameplay.forward, &gameplay.up);
+            if (gameplay.accelerating && gameplay.set_speed < MAX_SPEED)
+                gameplay.set_speed += SPEED_STEP;
 
-                    gameplay.yaw_speed = fx_mul(gameplay.yaw_speed, TURNING_SPEED_DAMPENING);
-                    gameplay.pitch_speed = fx_mul(gameplay.pitch_speed, TURNING_SPEED_DAMPENING);
+            if (gameplay.decelerating && gameplay.set_speed != 0)
+                gameplay.set_speed -= SPEED_STEP;
 
-                    if (gameplay.turning_left)
-                        gameplay.yaw_speed += TURNING_ACCELERATION;
-
-                    if (gameplay.turning_right)
-                        gameplay.yaw_speed -= TURNING_ACCELERATION;
-
-                    if (gameplay.turning_up)
-                        gameplay.pitch_speed += TURNING_ACCELERATION;
-
-                    if (gameplay.turning_down)
-                        gameplay.pitch_speed -= TURNING_ACCELERATION;
-
-                    gameplay.yaw_speed = fx_clamp(gameplay.yaw_speed, -MAX_TURNING_SPEED, MAX_TURNING_SPEED);
-                    gameplay.pitch_speed = fx_clamp(gameplay.pitch_speed, -MAX_TURNING_SPEED, MAX_TURNING_SPEED);
-
-                    if (fx_abs(gameplay.yaw_speed) > TURNING_SPEED_LOW_LIMIT)
-                        fx_quat_rotation_axis_angle(&yaw_rotation, &gameplay.up, gameplay.yaw_speed >> 7);
-                    else
-                        yaw_rotation = IDENTITY_QUAT;
-
-                    if (fx_abs(gameplay.pitch_speed) > TURNING_SPEED_LOW_LIMIT)
-                        fx_quat_rotation_axis_angle(&pitch_rotation, &right, gameplay.pitch_speed >> 7);
-                    else
-                        pitch_rotation = IDENTITY_QUAT;
-
-                    {
-                        fx3x3_t rm;
-                        fx4_t r;
-
-                        fx_quat_mul(&r, &yaw_rotation, &pitch_rotation);
-                        fx4_normalize_ip(&r);
-
-                        fx3x3_rotation(&rm, &r);
-
-                        fx_transform_vector_ip(&rm, &gameplay.forward);
-                        fx_transform_vector_ip(&rm, &gameplay.up);
-
-                        fx3_normalize_ip(&gameplay.forward);
-                        fx3_normalize_ip(&gameplay.up);
-                    }
-                }
-            }
-
-            {
-                fx3_t camera_target;
-                camera_target.x = gameplay.forward.x >> 1;
-                camera_target.y = gameplay.forward.y >> 1;
-                camera_target.z = gameplay.forward.z >> 1;
-                update_debris(&camera_target, &gameplay.linear_velocity);
+            if (gameplay.set_speed != previous_set_speed &&
+                (gameplay.set_speed % 20) == 0) {
+                    sfx_short_scrub();
             }
         }
 
-        gameplay.target_position = debris_positions[0];
+        {
+            fx3_t right;
+            fx4_t yaw_rotation, pitch_rotation;
+
+            fx3_cross(&right, &gameplay.forward, &gameplay.up);
+
+            gameplay.yaw_speed = fx_mul(gameplay.yaw_speed, TURNING_SPEED_DAMPENING);
+            gameplay.pitch_speed = fx_mul(gameplay.pitch_speed, TURNING_SPEED_DAMPENING);
+
+            if (gameplay.turning_left)
+                gameplay.yaw_speed += TURNING_ACCELERATION;
+
+            if (gameplay.turning_right)
+                gameplay.yaw_speed -= TURNING_ACCELERATION;
+
+            if (gameplay.turning_up)
+                gameplay.pitch_speed += TURNING_ACCELERATION;
+
+            if (gameplay.turning_down)
+                gameplay.pitch_speed -= TURNING_ACCELERATION;
+
+            gameplay.yaw_speed = fx_clamp(gameplay.yaw_speed, -MAX_TURNING_SPEED, MAX_TURNING_SPEED);
+            gameplay.pitch_speed = fx_clamp(gameplay.pitch_speed, -MAX_TURNING_SPEED, MAX_TURNING_SPEED);
+
+            if (fx_abs(gameplay.yaw_speed) > TURNING_SPEED_LOW_LIMIT)
+                fx_quat_rotation_axis_angle(&yaw_rotation, &gameplay.up, gameplay.yaw_speed >> 7);
+            else
+                yaw_rotation = IDENTITY_QUAT;
+
+            if (fx_abs(gameplay.pitch_speed) > TURNING_SPEED_LOW_LIMIT)
+                fx_quat_rotation_axis_angle(&pitch_rotation, &right, gameplay.pitch_speed >> 7);
+            else
+                pitch_rotation = IDENTITY_QUAT;
+
+            {
+                fx3x3_t rm;
+                fx4_t r;
+
+                fx_quat_mul(&r, &yaw_rotation, &pitch_rotation);
+                fx4_normalize_ip(&r);
+
+                fx3x3_rotation(&rm, &r);
+
+                fx_transform_vector_ip(&rm, &gameplay.forward);
+                fx3_normalize_ip(&gameplay.forward);
+
+                fx_transform_vector_ip(&rm, &gameplay.up);
+                fx3_normalize_ip(&gameplay.up);
+            }
+
+            fx3_mul(&gameplay.linear_velocity, &gameplay.forward, gameplay.set_speed >> 1);
+
+            gameplay.actual_speed = gameplay.set_speed; // TODO
+        }
+
+        {
+            fx3_t camera_target, debris_movement;
+
+            camera_target.x = gameplay.forward.x >> 1;
+            camera_target.y = gameplay.forward.y >> 1;
+            camera_target.z = gameplay.forward.z >> 1;
+
+            debris_movement.x = -gameplay.linear_velocity.x;
+            debris_movement.y = -gameplay.linear_velocity.y;
+            debris_movement.z = -gameplay.linear_velocity.z;
+
+            update_debris(&camera_target, &debris_movement);
+        }
     }
+
+    gameplay.target_position = debris_positions[0];
 }
 
 static void draw_fps() {
@@ -307,37 +385,7 @@ static void draw_fps() {
     uint16_t v = minu32(fps.average, 9999);
     buf[0] = vsync ? '*' : ' ';
     number_to_string(buf + 1, v);
-    draw_text(buf, 320 - 24, 4, 4);
-}
-
-static void setup_benchmark_view_matrix(fx4x3_t* view_matrix) {
-    fx3_t eye, target, up;
-    fx_t t1, t2, s1, c1, s2;
-
-    t1 = 25000 + (fx_t)timing.current_tick * 20;
-    t2 = fx_sin(-10000 + (fx_t)timing.current_tick * 13) / 12;
-
-    s1 = fx_sin(t1);
-    c1 = fx_cos(t1);
-    s2 = fx_sin(t2);
-
-    eye.x = s1;
-    eye.y = c1;
-    eye.z = s2;
-    fx3_normalize_ip(&eye);
-    eye.x >>= 2;
-    eye.y >>= 2;
-    eye.z >>= 2;
-
-    target.x = 0;
-    target.y = 0;
-    target.z = 0;
-
-    up.x = 0;
-    up.y = 0;
-    up.z = FX_ONE;
-
-    fx4x3_look_at(view_matrix, &eye, &target, &up);
+    draw_text2(buf, 320 - 24, 4, 4, 2);
 }
 
 #define TARGETING_BOX_HALF_WIDTH 12
@@ -351,14 +399,6 @@ static void draw_targeting(const fx4x3_t* view_matrix, const fx3_t* target_posit
 
     project_to_screen(&p);
     projected_position_to_screen(&p);
-
-#if 0
-    if (p.x - TARGETING_BOX_HALF_WIDTH < 0 ||
-        p.x + TARGETING_BOX_HALF_WIDTH >= SCREEN_WIDTH ||
-        p.y - TARGETING_BOX_HALF_HEIGHT < 0 ||
-        p.y + TARGETING_BOX_HALF_HEIGHT >= SCREEN_HEIGHT)
-        return;
-#endif
 
     draw_box_outline(p.x - TARGETING_BOX_HALF_WIDTH,
         p.y - TARGETING_BOX_HALF_HEIGHT,
@@ -412,66 +452,109 @@ static void draw_texts() {
     buffer[i] = 0;
 
     x = 6;
-    x = draw_text(buffer, x, 200 - (6 + 6), 4);
+    x = draw_text(buffer, x, 200 - (6 + 6), 0);
 
     if (((t >> 1) & 1) == 0)
-        draw_text_cursor(x, 200 - (6 + 6), 7);
+        draw_text_cursor(x, 200 - (6 + 6), 3);
 }
 
+#define LINE_SPACING 8
+
 static void draw() {
-    if (is_benchmark_running()) {
-        fx4x3_t view_matrix;
-        setup_benchmark_view_matrix(&view_matrix);
+    fx3_t zero_vec = { 0, 0, 0 };
+    fx4x3_t view_matrix;
+    fx4x3_look_at(&view_matrix, &zero_vec, &gameplay.forward, &gameplay.up);
 
+    if (stars_enabled)
         draw_stars(&view_matrix);
+
+    if (debris_enabled)
         draw_debris(&view_matrix);
-        draw_ship(&view_matrix);
 
-        flush_mesh_draw_buffer(draw_mode);
-    } else {
-        fx3_t zero_vec = { 0, 0, 0 };
-        fx4x3_t view_matrix;
-        fx4x3_look_at(&view_matrix, &zero_vec, &gameplay.forward, &gameplay.up);
+    if (ship_enabled && 0) {
+        fx4_t ship_rotation;
+        fx3_t ship_translation = { 0, 10000, 0 };
+        fx3_t rotation_axis = { 0, 0, FX_ONE };
 
-        if (stars_enabled)
-            draw_stars(&view_matrix);
+        fx_quat_rotation_axis_angle(&ship_rotation, &rotation_axis, timing.current_tick << 6);
 
-        if (debris_enabled)
-            draw_debris(&view_matrix);
+        draw_ship(&view_matrix, &ship_rotation, &ship_translation);
+    }
 
-        if (ship_enabled && 0)
-            draw_ship(&view_matrix);
+    flush_mesh_draw_buffer(draw_mode);
 
-        flush_mesh_draw_buffer(draw_mode);
+    if (texts_enabled) {
+        if (help) {
+            draw_help();
+        } else {
+            //draw_texts();
+        }
+    }
 
-        if (texts_enabled) {
-            if (help) {
-                draw_help();
-            } else {
-                draw_texts();
-            }
+    if (fps_enabled) {
+        if (benchmark_result) {
+            char buf[5] = { 0 };
+            number_to_string(buf, minu32(benchmark_result, 9999));
+            draw_text(buf, 320 - 48, 4, 8);
         }
 
-        if (fps_enabled) {
-            if (benchmark_result) {
-                char buf[5] = { 0 };
-                number_to_string(buf, minu32(benchmark_result, 9999));
-                draw_text(buf, 320 - 48, 4, 8);
-            }
-
-            draw_fps();
-        }
+        draw_fps();
+    }
 
 #if 0
+    {
+        uint16_t i;
+        for (i = 0; i < NUM_DEBRIS; ++i) {
+            draw_targeting(&view_matrix, &debris_positions[i]);
+        }
+    }
+#endif
+
+    {
+        int16_t x = 10;
+        int16_t y = 122;
+        int16_t width = 104;
+        int16_t height = 68;
+
+        draw_darkened_box(x, y, x + width, y + height);
+
         {
-            uint16_t i;
-            for (i = 0; i < NUM_DEBRIS; ++i) {
-                draw_targeting(&view_matrix, &debris_positions[i]);
-            }
+            int16_t tx = x + 4;
+            int16_t ty = y + 4;
+
+            draw_text2("1. Repair Droid", tx, ty, 4, 2); ty += LINE_SPACING;
+            draw_text2("2. Tractor Beam", tx, ty, 4, 2); ty += LINE_SPACING;
+            draw_text2("3. Systems", tx, ty, 4, 2); ty += LINE_SPACING;
+            draw_text2("4. Secondary Display", tx, ty, 4, 2); ty += LINE_SPACING;
+            draw_text2("5. Close", tx, ty, 4, 2); ty += LINE_SPACING;
+
         }
 
-        draw_darkened_box(8, 120, 120, 200 - 8);
-#endif
+        x = SCREEN_WIDTH - 10 - width;
+        draw_darkened_box(x, y, x + width, y + height);
+    }
+
+    {
+        int16_t left = SCREEN_WIDTH / 2 - 42;
+        int16_t right = SCREEN_WIDTH / 2 + 30;
+        int16_t y = 122;
+        char buf[5] = { 0 };
+        int16_t text_width;
+
+        y += 4;
+
+        draw_text2("SET", left, y, 4, 2);
+        draw_text2("ACT", right, y, 4, 2);
+
+        y += LINE_SPACING;
+
+        number_to_string(buf, gameplay.set_speed);
+        text_width = calc_text_width(buf);
+        draw_text2(buf, left + 5 - (text_width >> 1), y, 4, 2);
+
+        number_to_string(buf, gameplay.actual_speed);
+        text_width = calc_text_width(buf);
+        draw_text2(buf, right + 5 - (text_width >> 1), y, 4, 2);
     }
 }
 
@@ -489,6 +572,11 @@ static void update_input() {
             case KEY_GREY_UP | KEY_UP_FLAG: gameplay.turning_up = 0; break;
             case KEY_GREY_DOWN: gameplay.turning_down = 1; break;
             case KEY_GREY_DOWN | KEY_UP_FLAG: gameplay.turning_down = 0; break;
+
+            case KEY_PLUS: gameplay.accelerating = 1; break;
+            case KEY_PLUS | KEY_UP_FLAG: gameplay.accelerating = 0; break;
+            case KEY_HYPHEN: gameplay.decelerating = 1; break;
+            case KEY_HYPHEN | KEY_UP_FLAG: gameplay.decelerating = 0; break;
 
             case KEY_ESC:
                 quit = 1;
@@ -519,8 +607,7 @@ static void update_input() {
                 break;
 
             case KEY_B:
-                if (!is_benchmark_running())
-                    start_benchmark();
+                start_benchmark();
                 break;
 
             case KEY_H:
@@ -618,11 +705,20 @@ void main() {
         const uint8_t* src = PALETTE;
         aw_assert(NUM_PALETTE_COLORS <= 128);
         for (i = 0; i < NUM_PALETTE_COLORS; ++i) {
-            uint8_t r = *src++;
-            uint8_t g = *src++;
-            uint8_t b = *src++;
+            uint16_t r = *src++;
+            uint16_t g = *src++;
+            uint16_t b = *src++;
+
             vga_set_palette(i, r >> 2, g >> 2, b >> 2);
-            vga_set_palette(i + 128, r >> 4, g >> 4, b >> 4);
+
+            r = (r << 1) + r;
+            g = (g << 1) + g;
+            b = (b << 1) + b;
+            r >>= 5;
+            g >>= 5;
+            b >>= 5;
+
+            vga_set_palette(i + 128, r, g, b);
         }
     }
 
@@ -639,17 +735,27 @@ void main() {
         previous_frame_ticks = frame_start_ticks;
         frame_dt = mul32(ticks_delta, TIMER_TICK_USEC);
 
-        update_fps(frame_dt);
+        if (!is_benchmark_running())
+            update_fps(frame_dt);
+
         update_timing(frame_dt);
-        update_input();
-        update();
+
+        if (!is_benchmark_running()) {
+            update_input();
+            update();
+        } else {
+            update_benchmark();
+        }
 
         dblbuf_clear();
 
-        draw();
-
-        if (vsync && !is_benchmark_running())
-            vga_wait_for_retrace();
+        if (!is_benchmark_running()) {
+            draw();
+            if (vsync)
+                vga_wait_for_retrace();
+        } else {
+            draw_benchmark();
+        }
 
         dblbuf_copy_to_screen();
     }

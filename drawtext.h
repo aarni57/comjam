@@ -6,7 +6,7 @@
 
 static void blit_char(int16_t x, int16_t y,
     uint16_t src_x, uint16_t src_y,
-    uint8_t color_start) {
+    uint8_t color_start, uint8_t color_max) {
     uint16_t width = FONT6X6_WIDTH;
     uint16_t height = FONT6X6_HEIGHT;
 
@@ -45,6 +45,7 @@ static void blit_char(int16_t x, int16_t y,
             while (row--) {
                 uint8_t c2 = (c >> (step << 1)) & 3;
                 if (c2) {
+                    if (c2 > color_max) c2 = color_max;
                     *tgt = c2 + color_start;
                 }
 
@@ -71,8 +72,8 @@ static void blit_char(int16_t x, int16_t y,
     }
 }
 
-static int16_t draw_text(const char* text, int16_t left, int16_t top,
-    uint8_t color_start) {
+static int16_t draw_text2(const char* text, int16_t left, int16_t top,
+    uint8_t color_start, uint8_t color_max) {
     int16_t x = left;
     int16_t y = top;
 
@@ -90,9 +91,9 @@ static int16_t draw_text(const char* text, int16_t left, int16_t top,
         } else {
             if (c >= FONT_FIRST_CHARACTER &&
                 c <= FONT_LAST_CHARACTER) {
-                const uint8_t character_index = (uint8_t)(c - FONT_FIRST_CHARACTER);
-                const uint16_t font_y = (uint16_t)character_index * font->height;
-                blit_char(x, y, 0, font_y, color_start);
+                uint8_t character_index = (uint8_t)(c - FONT_FIRST_CHARACTER);
+                uint16_t font_y = (uint16_t)character_index * font->height;
+                blit_char(x, y, 0, font_y, color_start, color_max);
                 x += font->spacing + font->spacings[character_index];
             } else if (c == ' ') {
                 x += font->space_width;
@@ -101,6 +102,42 @@ static int16_t draw_text(const char* text, int16_t left, int16_t top,
     }
 
     return x;
+}
+
+static int16_t calc_text_width(const char* text) {
+    int16_t line_width = 0;
+    int16_t max_width = 0;
+
+    const font_t* font = &FONT6X6;
+
+    for (;;) {
+        const char c = *text++;
+        if (!c) {
+            break;
+        }
+
+        if (c == '\n') {
+            if (max_width < line_width)
+                max_width = line_width;
+
+            line_width = 0;
+        } else {
+            if (c >= FONT_FIRST_CHARACTER &&
+                c <= FONT_LAST_CHARACTER) {
+                uint8_t character_index = (uint8_t)(c - FONT_FIRST_CHARACTER);
+                line_width += font->spacing + font->spacings[character_index];
+            } else if (c == ' ') {
+                line_width += font->space_width;
+            }
+        }
+    }
+
+    return line_width > max_width ? line_width : max_width;
+}
+
+static inline int16_t draw_text(const char* text, int16_t left, int16_t top,
+    uint8_t color_start) {
+    return draw_text2(text, left, top, color_start, 255);
 }
 
 static void draw_text_cursor(int16_t left, int16_t top, uint8_t color) {

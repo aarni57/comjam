@@ -29,11 +29,11 @@ static void init_meshes() {
     init_mesh_adjustment_matrix(&scrap3_mesh_adjust_matrix, &scrap3_size, &scrap3_center);
 }
 
-static void draw_ship(const fx4x3_t* view_matrix) {
+static void draw_ship(const fx4x3_t* view_matrix, const fx4_t* rotation,
+    const fx3_t* translation) {
     fx4x3_t model_matrix, tmp, model_view_matrix;
-    fx3_t model_translation = { 0 };
 
-    fx4x3_translation(&model_matrix, &model_translation);
+    fx4x3_rotation_translation(&model_matrix, rotation, translation);
 
     fx4x3_mul(&tmp, &model_matrix, &ship_mesh_adjust_matrix);
     fx4x3_mul(&model_view_matrix, view_matrix, &tmp);
