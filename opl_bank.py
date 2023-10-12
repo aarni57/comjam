@@ -10,7 +10,7 @@ with open("opl_bank.tmb", "rb") as infile:
     data = infile.read()
 
     with open("opl_bank.h", "w") as f:
-        f.write("const uint8_t opl_bank[128][")
+        f.write("static const uint8_t opl_bank[128][")
         f.write(str(num_bytes_per_instrument_out))
         f.write("] = {\n")
 

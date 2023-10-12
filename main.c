@@ -12,6 +12,10 @@
 #   define INLINE_ASM
 #endif
 
+#if 0
+#   define BENCHMARK_ENABLED
+#endif
+
 //
 
 #if 0
@@ -101,9 +105,11 @@ static uint8_t ship_enabled = 1;
 static uint8_t texts_enabled = 1;
 static uint8_t fps_enabled = 1;
 
+#if defined(BENCHMARK_ENABLED)
 static uint8_t benchmark_timer = 0;
 static uint32_t benchmark_start_tick = 0;
 static uint32_t benchmark_result = 0;
+#endif
 
 //
 
@@ -180,6 +186,8 @@ static void restart() {
 
 //
 
+#if defined(BENCHMARK_ENABLED)
+
 #define BENCHMARK_DURATION_FRAMES 128
 #define BENCHMARK_STEP_TICKS 32
 
@@ -255,18 +263,28 @@ static void draw_benchmark() {
     flush_mesh_draw_buffer(draw_mode);
 }
 
+#else
+
+static inline int is_benchmark_running() { return 0; }
+static inline void update_benchmark() {}
+static inline void draw_benchmark() {}
+
+#endif
+
 //
 
 static void update_timing(uint32_t dt_us) {
     timing.current_frame++;
 
     if (is_benchmark_running()) {
+#if defined(BENCHMARK_ENABLED)
         if (benchmark_timer == BENCHMARK_DURATION_FRAMES) {
             end_benchmark();
         } else {
             benchmark_timer++;
             timing.ticks_to_advance = BENCHMARK_STEP_TICKS;
         }
+#endif
     } else {
         timing.ticks_to_advance = 0;
         timing.tick_accumulator += dt_us;
@@ -284,8 +302,13 @@ static void update_timing(uint32_t dt_us) {
 #define MAX_TURNING_SPEED FX_ONE
 #define TURNING_SPEED_LOW_LIMIT 64
 
-#define MAX_SPEED 300
-#define SPEED_STEP 2
+#define LINEAR_ACCELERATION 1400
+
+#define GAMEPLAY_SPEED_TO_WORLD_MUL FX_ONE * 128
+#define GAMEPLAY_SPEED_FROM_WORLD_MUL FX_ONE / 128
+
+#define MAX_GAMEPLAY_SPEED 300
+#define GAMEPLAY_SPEED_STEP 2
 
 static const fx4_t IDENTITY_QUAT = { 0, 0, 0, FX_ONE };
 
@@ -295,11 +318,11 @@ static void update() {
         {
             uint16_t previous_set_speed = gameplay.set_speed;
 
-            if (gameplay.accelerating && gameplay.set_speed < MAX_SPEED)
-                gameplay.set_speed += SPEED_STEP;
+            if (gameplay.accelerating && gameplay.set_speed < MAX_GAMEPLAY_SPEED)
+                gameplay.set_speed += GAMEPLAY_SPEED_STEP;
 
             if (gameplay.decelerating && gameplay.set_speed != 0)
-                gameplay.set_speed -= SPEED_STEP;
+                gameplay.set_speed -= GAMEPLAY_SPEED_STEP;
 
             if (gameplay.set_speed != previous_set_speed &&
                 (gameplay.set_speed % 20) == 0) {
@@ -357,9 +380,19 @@ static void update() {
                 fx3_normalize_ip(&gameplay.up);
             }
 
-            fx3_mul(&gameplay.linear_velocity, &gameplay.forward, gameplay.set_speed >> 1);
+            fx3_mul_ip(&gameplay.linear_velocity, FX_ONE * 97 / 100);
 
-            gameplay.actual_speed = gameplay.set_speed; // TODO
+            if (gameplay.set_speed != 0) {
+                fx_t actual_speed = fx3_length(&gameplay.linear_velocity);
+                fx_t target_speed = fx_mul(gameplay.set_speed, GAMEPLAY_SPEED_TO_WORLD_MUL);
+                if (actual_speed < target_speed) {
+                    fx3_t acceleration;
+                    fx3_mul(&acceleration, &gameplay.forward, fx_min(target_speed - actual_speed, LINEAR_ACCELERATION));
+                    fx3_add_ip(&gameplay.linear_velocity, &acceleration);
+                }
+            }
+
+            gameplay.actual_speed = fx_mul(fx3_length(&gameplay.linear_velocity), GAMEPLAY_SPEED_FROM_WORLD_MUL);
         }
 
         {
@@ -369,9 +402,9 @@ static void update() {
             camera_target.y = gameplay.forward.y >> 1;
             camera_target.z = gameplay.forward.z >> 1;
 
-            debris_movement.x = -gameplay.linear_velocity.x;
-            debris_movement.y = -gameplay.linear_velocity.y;
-            debris_movement.z = -gameplay.linear_velocity.z;
+            debris_movement.x = -gameplay.linear_velocity.x >> 8;
+            debris_movement.y = -gameplay.linear_velocity.y >> 8;
+            debris_movement.z = -gameplay.linear_velocity.z >> 8;
 
             update_debris(&camera_target, &debris_movement);
         }
@@ -385,7 +418,7 @@ static void draw_fps() {
     uint16_t v = minu32(fps.average, 9999);
     buf[0] = vsync ? '*' : ' ';
     number_to_string(buf + 1, v);
-    draw_text2(buf, 320 - 24, 4, 4, 2);
+    draw_text2(buf, 320 - 26, 4, 8, 2);
 }
 
 #define TARGETING_BOX_HALF_WIDTH 12
@@ -413,7 +446,6 @@ static void draw_help() {
     draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
     draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
     draw_text("w: Change draw mode (solid/wireframe)", 4, y, 4); y += 6;
-    draw_text("b: Run benchmark (result is shown in blue next to fps)", 4, y, 4); y += 6;
     draw_text("1-5: Toggle rendering (stars, debris, ship, texts, fps)", 4, y, 4); y += 6;
     draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
     draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;
@@ -458,6 +490,21 @@ static void draw_texts() {
         draw_text_cursor(x, 200 - (6 + 6), 3);
 }
 
+static void draw_line_mesh(int16_t x, int16_t y) {
+    const int8_t* lines = scrap_lines;
+    const int8_t* lines_end = lines + ((scrap_num_lines << 2) + scrap_num_lines);
+    while (lines < lines_end) {
+        int8_t x0, y0, x1, y1;
+        uint8_t c;
+        x0 = *lines++;
+        y0 = *lines++;
+        x1 = *lines++;
+        y1 = *lines++;
+        c = *lines++;
+        draw_line(x + x0, y + y0, x + x1, y + y1, c);
+    }
+}
+
 #define LINE_SPACING 8
 
 static void draw() {
@@ -471,15 +518,17 @@ static void draw() {
     if (debris_enabled)
         draw_debris(&view_matrix);
 
-    if (ship_enabled && 0) {
+#if 0
+    if (ship_enabled) {
         fx4_t ship_rotation;
-        fx3_t ship_translation = { 0, 10000, 0 };
+        fx3_t ship_translation = { 0, 20000, 0 };
         fx3_t rotation_axis = { 0, 0, FX_ONE };
 
         fx_quat_rotation_axis_angle(&ship_rotation, &rotation_axis, timing.current_tick << 6);
 
         draw_ship(&view_matrix, &ship_rotation, &ship_translation);
     }
+#endif
 
     flush_mesh_draw_buffer(draw_mode);
 
@@ -492,11 +541,13 @@ static void draw() {
     }
 
     if (fps_enabled) {
+#if defined(BENCHMARK_ENABLED)
         if (benchmark_result) {
             char buf[5] = { 0 };
             number_to_string(buf, minu32(benchmark_result, 9999));
             draw_text(buf, 320 - 48, 4, 8);
         }
+#endif
 
         draw_fps();
     }
@@ -524,24 +575,23 @@ static void draw() {
 
             draw_text2("1. Repair Droid", tx, ty, 4, 2); ty += LINE_SPACING;
             draw_text2("2. Tractor Beam", tx, ty, 4, 2); ty += LINE_SPACING;
-            draw_text2("3. Systems", tx, ty, 4, 2); ty += LINE_SPACING;
-            draw_text2("4. Secondary Display", tx, ty, 4, 2); ty += LINE_SPACING;
-            draw_text2("5. Close", tx, ty, 4, 2); ty += LINE_SPACING;
+            draw_text2("3. Secondary Display", tx, ty, 4, 2); ty += LINE_SPACING;
+            draw_text2("4. Back", tx, ty, 4, 2); ty += LINE_SPACING;
 
         }
 
         x = SCREEN_WIDTH - 10 - width;
         draw_darkened_box(x, y, x + width, y + height);
+
+        draw_line_mesh(x + width / 2, y + height / 2);
     }
 
     {
-        int16_t left = SCREEN_WIDTH / 2 - 42;
-        int16_t right = SCREEN_WIDTH / 2 + 30;
-        int16_t y = 122;
+        int16_t left = SCREEN_WIDTH / 2 - 41;
+        int16_t right = SCREEN_WIDTH / 2 + 29;
+        int16_t y = 122 + 4;
         char buf[5] = { 0 };
         int16_t text_width;
-
-        y += 4;
 
         draw_text2("SET", left, y, 4, 2);
         draw_text2("ACT", right, y, 4, 2);
@@ -606,9 +656,11 @@ static void update_input() {
                 vsync ^= 1;
                 break;
 
+#if defined(BENCHMARK_ENABLED)
             case KEY_B:
                 start_benchmark();
                 break;
+#endif
 
             case KEY_H:
                 help ^= 1;

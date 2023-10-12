@@ -55,7 +55,7 @@ def write_delta_time(f, t, writing_index):
     return writing_index
 
 with open(name + ".h", "w") as f:
-    f.write("const uint8_t song_events[] = {\n")
+    f.write("static const uint8_t song_events[] = {\n")
 
     writing_index = 0
 
