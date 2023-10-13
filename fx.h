@@ -12,6 +12,9 @@
 #define FX_HALF 32768L
 #define FX_QUARTER 16384L
 
+#define FX_EPSILON 256
+#define FX_EPSILON_SQUARED 16
+
 #define FX_MIN INT32_MIN
 #define FX_MAX INT32_MAX
 
@@ -463,6 +466,19 @@ static inline void fx4_normalize_ip(fx4_t* v) {
     fx4_mul_ip(v, fx4_length_rcp(v));
 }
 
+static inline void fx_quat_normalize(fx4_t* q) {
+    fx_t length_squared = fx4_length_squared(q);
+    if (length_squared < FX_EPSILON_SQUARED) {
+        q->x = 0;
+        q->y = 0;
+        q->z = 0;
+        q->w = FX_ONE;
+        return;
+    }
+
+    fx4_mul_ip(q, fx_rcp(fx_sqrt(length_squared)));
+}
+
 //
 
 static inline void fx_quat_rotation_axis_angle(fx4_t* q, 
@@ -493,6 +509,12 @@ static inline void fx_quat_mul(fx4_t* r, const fx4_t* a, const fx4_t* b) {
             fx_mul_ptr(&a->y, &b->y) -
             fx_mul_ptr(&a->z, &b->z) +
             fx_mul_ptr(&a->w, &b->w);
+}
+
+static inline void fx_quat_mul_ip(fx4_t* a, const fx4_t* b) {
+    fx4_t t;
+    fx_quat_mul(&t, a, b);
+    *a = t;
 }
 
 //

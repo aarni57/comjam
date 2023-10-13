@@ -1,4 +1,4 @@
-#define NUM_DEBRIS 56
+#define NUM_DEBRIS 48
 static fx3_t debris_positions[NUM_DEBRIS];
 static fx3_t debris_rotation_axes[NUM_DEBRIS];
 static fx_t debris_rotations[NUM_DEBRIS];
@@ -99,9 +99,9 @@ static void update_debris(const fx3_t* center, const fx3_t* movement) {
 
 #define DEBRIS_CLIP_BORDER 32
 #define DEBRIS_LEFT_CLIP (-DEBRIS_CLIP_BORDER << RASTER_SUBPIXEL_BITS)
-#define DEBRIS_RIGHT_CLIP ((SCREEN_WIDTH + DEBRIS_CLIP_BORDER) << RASTER_SUBPIXEL_BITS)
+#define DEBRIS_RIGHT_CLIP ((SCREEN_X_MAX + DEBRIS_CLIP_BORDER) << RASTER_SUBPIXEL_BITS)
 #define DEBRIS_TOP_CLIP (-DEBRIS_CLIP_BORDER << RASTER_SUBPIXEL_BITS)
-#define DEBRIS_BOTTOM_CLIP ((SCREEN_HEIGHT + DEBRIS_CLIP_BORDER) << RASTER_SUBPIXEL_BITS)
+#define DEBRIS_BOTTOM_CLIP ((SCREEN_Y_MAX + DEBRIS_CLIP_BORDER) << RASTER_SUBPIXEL_BITS)
 
 static void draw_debris(const fx4x3_t* view_matrix) {
     fx4_t rotation;
@@ -118,7 +118,8 @@ static void draw_debris(const fx4x3_t* view_matrix) {
         if (transformed_position.z < NEAR_CLIP)
             continue;
 
-        project_to_screen(&transformed_position);
+        project_to_screen(&transformed_position,
+            SCREEN_SUBPIXEL_CENTER_X, SCREEN_SUBPIXEL_CENTER_Y);
         if (transformed_position.x < DEBRIS_LEFT_CLIP ||
             transformed_position.x > DEBRIS_RIGHT_CLIP ||
             transformed_position.y < DEBRIS_TOP_CLIP ||

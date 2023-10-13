@@ -8,8 +8,8 @@ import sys
 import subprocess
 import platform
 
-names = [ "ship", "asteroid", "scrap", "scrap2", "scrap3" ]
-need_lines = [ False, False, True, False, False ]
+names = [ "ship", "asteroid", "scrap", "scrap2", "scrap3", "wreck", "container" ]
+need_lines = [ False, False, False, False, False, False, False ]
 input_path = "/Users/aarni/dev/comjam"
 output_path = "/Users/aarni/dev/comjam"
 

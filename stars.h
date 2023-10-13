@@ -58,7 +58,7 @@ static void draw_stars(const fx4x3_t* view_matrix) {
         if (v.z < NEAR_CLIP)
             continue;
 
-        project_to_screen(&v);
+        project_to_screen(&v, SCREEN_SUBPIXEL_CENTER_X, SCREEN_SUBPIXEL_CENTER_Y);
 
         x = v.x >> RASTER_SUBPIXEL_BITS;
         y = v.y >> RASTER_SUBPIXEL_BITS;

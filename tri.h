@@ -2,7 +2,6 @@
 #define TRI_H
 
 #include "minmax.h"
-#include "screen.h"
 #include "fx.h"
 
 //
@@ -15,6 +14,9 @@
 #define RASTER_SUBPIXEL_ONE     16
 #define RASTER_SUBPIXEL_MASK    15
 #define RASTER_SUBPIXEL_HALF    8
+
+#define SCREEN_SUBPIXEL_CENTER_X 2560
+#define SCREEN_SUBPIXEL_CENTER_Y 1600
 
 //
 

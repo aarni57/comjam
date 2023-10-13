@@ -35,9 +35,11 @@ static inline void set_text_cursor(uint8_t row, uint8_t col);
 modify [ax bh] \
 parm [dh] [dl];
 
-static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h, uint8_t* th) {
-    uint8_t ones, tens, hundreds, thousands;
+static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h, uint8_t* th, uint8_t* tt) {
+    uint8_t ones, tens, hundreds, thousands, tens_thousands;
 #if !defined(INLINE_ASM)
+    tens_thousands = v / 10000;
+    v -= tens_thousands * 10000;
     thousands = v / 1000;
     v -= thousands * 1000;
     hundreds = v / 100;
@@ -49,6 +51,11 @@ static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h,
     __asm {
         .386
         mov ax, v
+        mov cx, 10000
+        xor dx, dx
+        div cx
+        mov tens_thousands, al
+        mov ax, dx
         mov cx, 1000
         xor dx, dx
         div cx
@@ -70,6 +77,7 @@ static inline void split_number(uint16_t v, uint8_t* o, uint8_t* te, uint8_t* h,
     *te = tens;
     *h = hundreds;
     *th = thousands;
+    *tt = tens_thousands;
 }
 
 static inline char number_to_char(uint8_t v) {
@@ -77,12 +85,14 @@ static inline char number_to_char(uint8_t v) {
 }
 
 static inline void number_to_string(char* buf, uint16_t v) {
-    uint8_t ones, tens, hundreds, thousands;
-    split_number(v, &ones, &tens, &hundreds, &thousands);
-    buf[0] = thousands ? number_to_char(thousands) : ' ';
-    buf[1] = (thousands || hundreds) ? number_to_char(hundreds) : ' ';
-    buf[2] = (thousands || hundreds || tens) ? number_to_char(tens) : ' ';
-    buf[3] = number_to_char(ones);
+    uint8_t ones, tens, hundreds, thousands, tens_thousands;
+    char* tgt = buf;
+    split_number(v, &ones, &tens, &hundreds, &thousands, &tens_thousands);
+    if (tens_thousands) *tgt++ = number_to_char(tens_thousands);
+    if (tens_thousands || thousands) *tgt++ = number_to_char(thousands);
+    if (tens_thousands || thousands || hundreds) *tgt++ = number_to_char(hundreds);
+    if (tens_thousands || thousands || hundreds || tens) *tgt++ = number_to_char(tens);
+    *tgt = number_to_char(ones);
 }
 
 #endif

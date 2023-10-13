@@ -9,13 +9,12 @@
 //
 
 #define NEAR_CLIP 256
-#define FAR_CLIP 1048576L
 
-static inline void project_to_screen(fx3_t* v) {
+static inline void project_to_screen(fx3_t* v, int16_t center_x, int16_t center_y) {
 #if !defined(INLINE_ASM)
     fx_t ooz;
 
-    if (v->z < NEAR_CLIP || v->z > FAR_CLIP) {
+    if (v->z < NEAR_CLIP) {
         v->z = 0;
         return;
     }
@@ -30,10 +29,10 @@ static inline void project_to_screen(fx3_t* v) {
     v->x = fx_mul(v->x, ooz) >> (16 - RASTER_SUBPIXEL_BITS);
     v->y = fx_mul(v->y, -ooz) >> (16 - RASTER_SUBPIXEL_BITS);
 
-    v->x += SCREEN_CENTER_X << RASTER_SUBPIXEL_BITS;
-    v->y += SCREEN_CENTER_Y << RASTER_SUBPIXEL_BITS;
+    v->x += center_x;
+    v->y += center_y;
 #else
-    if (v->z < NEAR_CLIP || v->z > FAR_CLIP) {
+    if (v->z < NEAR_CLIP) {
         v->z = 0;
         return;
     }
@@ -60,7 +59,8 @@ static inline void project_to_screen(fx3_t* v) {
         shrd eax, edx, 16
 
         sar eax, 12
-        add eax, 2560
+        movsx ecx, center_x
+        add eax, ecx
         mov [si], eax
 
         // y
@@ -73,7 +73,8 @@ static inline void project_to_screen(fx3_t* v) {
 
         sar eax, 12
         neg eax
-        add eax, 1600
+        movsx ecx, center_y
+        add eax, ecx
         mov 4[si], eax
     }
 #endif
@@ -189,7 +190,8 @@ static uint32_t __far* sort_buffer = NULL;
 
 static void draw_mesh(const fx4x3_t* model_view_matrix,
     uint16_t num_indices, uint16_t num_vertices,
-    const uint16_t* indices, const uint8_t* face_colors, const int8_t* vertices) {
+    const uint16_t* indices, const uint8_t* face_colors, const int8_t* vertices,
+    int16_t center_x, int16_t center_y) {
     aw_assert(num_vertices <= TM_BUFFER_MAX_VERTICES);
     aw_assert(num_indices % 3 == 0);
     aw_assert(draw_buffer_num_triangles + num_indices / 3 <= DRAW_BUFFER_MAX_TRIANGLES);
@@ -206,7 +208,7 @@ static void draw_mesh(const fx4x3_t* model_view_matrix,
 
             fx_transform_point_ip(model_view_matrix, &v);
 
-            project_to_screen(&v);
+            project_to_screen(&v, center_x, center_y);
 
             *tm_iter++ = fx_clamp(v.x, INT16_MIN, INT16_MAX);
             *tm_iter++ = fx_clamp(v.y, INT16_MIN, INT16_MAX);

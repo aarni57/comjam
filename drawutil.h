@@ -20,6 +20,48 @@ static inline void draw_darkened_box(uint16_t x0, uint16_t y0, uint16_t x1, uint
     }
 }
 
+static inline void draw_hline_no_check(int16_t x0, int16_t x1, int16_t y, uint8_t c) {
+    uint8_t __far* tgt, __far* tgt_end;
+    tgt = dblbuf + mul_by_screen_stride(y) + x0;
+    aw_assert(tgt >= dblbuf);
+    tgt_end = tgt + (x1 - x0 + 1);
+    aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+    while (tgt < tgt_end) {
+        *tgt++ = c;
+    }
+}
+
+static inline void draw_vline(int16_t x, int16_t y0, int16_t y1, uint8_t c) {
+    uint8_t __far* tgt, __far* tgt_end;
+
+    if (x < 0 || x > SCREEN_X_MAX || y0 > SCREEN_Y_MAX || y1 < 0)
+        return;
+
+    y0 = clamp16(y0, 0, SCREEN_Y_MAX);
+    y1 = clamp16(y1, 0, SCREEN_Y_MAX);
+
+    tgt = dblbuf + mul_by_screen_stride(y0) + x;
+    aw_assert(tgt >= dblbuf);
+    tgt_end = dblbuf + mul_by_screen_stride(y1 + 1) + x;
+    aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+    while (tgt < tgt_end) {
+        *tgt = c;
+        tgt += SCREEN_STRIDE;
+    }
+}
+
+static inline void draw_vline_no_check(int16_t x, int16_t y0, int16_t y1, uint8_t c) {
+    uint8_t __far* tgt, __far* tgt_end;
+    tgt = dblbuf + mul_by_screen_stride(y0) + x;
+    aw_assert(tgt >= dblbuf);
+    tgt_end = dblbuf + mul_by_screen_stride(y1 + 1) + x;
+    aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+    while (tgt < tgt_end) {
+        *tgt = c;
+        tgt += SCREEN_STRIDE;
+    }
+}
+
 static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t c) {
     int16_t left = clamp16(x0, 0, SCREEN_WIDTH - 1);
     int16_t right = clamp16(x1, 0, SCREEN_WIDTH - 1);
