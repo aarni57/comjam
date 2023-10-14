@@ -111,6 +111,13 @@ static inline void draw_darkened_vline_no_check(int16_t x, int16_t y0, int16_t y
     }
 }
 
+static inline void draw_box_outline_no_check(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t c) {
+    draw_hline_no_check(x0, x1, y0, c);
+    draw_vline_no_check(x0, y0 + 1, y1 - 1, c);
+    draw_vline_no_check(x1, y0 + 1, y1 - 1, c);
+    draw_hline_no_check(x0, x1, y1, c);
+}
+
 static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t c) {
     int16_t left = clamp16(x0, 0, SCREEN_WIDTH - 1);
     int16_t right = clamp16(x1, 0, SCREEN_WIDTH - 1);
@@ -166,6 +173,17 @@ static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t 
     }
 }
 
+static inline void draw_box_outline_corners(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t c) {
+    draw_hline(x0, x0 + ((x1 - x0) >> 2), y0, c);
+    draw_hline(x1 - ((x1 - x0) >> 2), x1, y0, c);
+    draw_hline(x0, x0 + ((x1 - x0) >> 2), y1, c);
+    draw_hline(x1 - ((x1 - x0) >> 2), x1, y1, c);
+    draw_vline(x0, y0 + 1, y0 + ((y1 - y0) >> 2), c);
+    draw_vline(x0, y1 - ((y1 - y0) >> 2), y1 - 1, c);
+    draw_vline(x1, y0 + 1, y0 + ((y1 - y0) >> 2), c);
+    draw_vline(x1, y1 - ((y1 - y0) >> 2), y1 - 1, c);
+}
+
 static inline void draw_cross(uint16_t x, uint16_t y, uint8_t c) {
     uint8_t __far* tgt = dblbuf + mul_by_screen_stride(y) + x;
     tgt[-SCREEN_STRIDE * 3] = c;
@@ -176,6 +194,65 @@ static inline void draw_cross(uint16_t x, uint16_t y, uint8_t c) {
     tgt[3] = c;
     tgt[SCREEN_STRIDE * 2] = c;
     tgt[SCREEN_STRIDE * 3] = c;
+}
+
+static inline void put_pixel(int16_t x, int16_t y, uint8_t c) {
+    if (x < 0 || y < 0 || x > SCREEN_X_MAX || y > SCREEN_Y_MAX)
+        return;
+
+    dblbuf[mul_by_screen_stride(y) + x] = c;
+}
+
+static inline void draw_noise(int16_t x, int16_t y, int16_t width, int16_t height, uint16_t r) {
+    int16_t i, j;
+    uint8_t __far* tgt = dblbuf + (mul_by_screen_stride(y) + x);
+    for (j = 0; j < height; ++j) {
+        for (i = 0; i < width; ++i) {
+            uint8_t c = r & 7;
+            if (c >= 5)
+                *tgt = c - 5;
+            tgt++;
+#if defined(INLINE_ASM)
+            __asm {
+                mov ax, r
+                mov bx, ax
+                shl bx, 7
+                xor ax, bx
+                mov bx, ax
+                shr bx, 9
+                xor ax, bx
+                mov bx, ax
+                shl bx, 8
+                xor ax, bx
+                mov r, ax
+            }
+#else
+            r ^= r << 7;
+            r ^= r >> 9;
+            r ^= r << 8;
+#endif
+        }
+
+        tgt += SCREEN_STRIDE - width;
+    }
+}
+
+static inline void blit_image(int16_t x, int16_t y, int16_t src_x, int16_t src_y,
+    int16_t width, int16_t height, uint8_t __far* src) {
+    int16_t i, j;
+    uint8_t __far* tgt = dblbuf + (mul_by_screen_stride(y) + x);
+    src += mul_by_screen_stride(src_y) + src_x;
+    for (j = 0; j < height; ++j) {
+        for (i = 0; i < width; ++i) {
+            uint8_t c = *src++;
+            if (c)
+                *tgt = c;
+            tgt++;
+        }
+
+        tgt += SCREEN_STRIDE - width;
+        src += SCREEN_STRIDE - width;
+    }
 }
 
 #endif
