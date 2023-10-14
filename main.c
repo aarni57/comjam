@@ -172,7 +172,7 @@ typedef struct object_movement_t {
     fx4_t angular_velocity;
 } object_movement_t;
 
-#define MAX_OBJECTS 32
+#define MAX_OBJECTS 8
 
 static uint8_t num_objects = 0;
 
@@ -192,7 +192,7 @@ static inline void random_nav_point_position(fx3_t* position) {
     position->z = fx_random_signed_one() << 6;
 }
 
-static void init_objects() {
+static void init_objects(const fx3_t* start_position) {
     uint8_t i;
 
     num_objects = 6;
@@ -217,6 +217,7 @@ static void init_objects() {
                 object_movement_t* movement = &object_movements[i];
 
                 random_object_position(&tm->position);
+                fx3_sub_ip(&tm->position, start_position);
 
                 tm->rotation.x = fx_random_signed_one();
                 tm->rotation.y = fx_random_signed_one();
@@ -250,13 +251,21 @@ static void init_objects() {
             }
 
             case OBJECT_TYPE_NAV_POINT:
-            case OBJECT_TYPE_JUMP_POINT:
+            case OBJECT_TYPE_JUMP_POINT: {
+                object_tm_t* tm = &object_tms[i];
+                fx3_sub_ip(&tm->position, start_position);
+                break;
+            }
+
+            default:
+                aw_assert(0);
                 break;
         }
     }
 }
 
 static void update_objects(const fx3_t* movement) {
+    static uint8_t normalize_counter = 0x3f;
     uint8_t i;
     for (i = 0; i < num_objects; ++i) {
         switch (objects[i].type) {
@@ -265,17 +274,29 @@ static void update_objects(const fx3_t* movement) {
             case OBJECT_TYPE_CONTAINER: {
                 object_tm_t* tm = &object_tms[i];
                 object_movement_t* om = &object_movements[i];
+
                 fx3_add_ip(&tm->position, &om->linear_velocity);
                 fx3_add_ip(&tm->position, movement);
+
                 fx_quat_mul_ip(&tm->rotation, &om->angular_velocity);
-                fx4_normalize_ip(&tm->rotation);
+
+                if (((normalize_counter + i) & 0x3f) == 0)
+                    fx4_normalize_ip(&tm->rotation);
+
                 break;
             }
 
-            default:
+            default: {
+                object_tm_t* tm = &object_tms[i];
+                fx3_add_ip(&tm->position, movement);
                 break;
+            }
         }
     }
+
+    normalize_counter--;
+    if (normalize_counter == 0)
+        normalize_counter = 0x3f;
 }
 
 #define OBJECT_FAR_CLIP (1024L * 1024)
@@ -319,6 +340,69 @@ static void draw_objects(const fx4x3_t* view_matrix) {
 #define GAMEPLAY_TARGETING_DURATION_BITS 5
 #define GAMEPLAY_TARGETING_DURATION (1 << GAMEPLAY_TARGETING_DURATION_BITS)
 
+//
+
+#define DISPLAY_STATE_MAIN              0
+#define DISPLAY_STATE_STATUS            1
+#define DISPLAY_STATE_COMMUNICATIONS    2
+#define DISPLAY_STATE_CARGO_MANIFEST    3
+#define DISPLAY_STATE_PERIPHERALS       4
+#define DISPLAY_STATE_REPAIR_DROID      5
+#define DISPLAY_STATE_TRACTOR_BEAM      6
+
+static const char* display_options_main[] = {
+    "1. Status",
+    "2. Communications",
+    "3. Cargo manifest",
+    "4. Peripherals",
+    NULL
+};
+
+static const char* display_options_status[] = {
+    "1. Back",
+    NULL
+};
+
+static const char* display_options_communications[] = {
+    "1. Back",
+    NULL
+};
+
+static const char* display_options_cargo_manifest[] = {
+    "1. Back",
+    NULL
+};
+
+static const char* display_options_peripherals[] = {
+    "1. Back",
+    "2. Repair droid",
+    "3. Tractor beam",
+    NULL
+};
+
+static const char* display_options_repair_droid[] = {
+    "1. Back",
+    NULL
+};
+
+static const char* display_options_tractor_beam[] = {
+    "1. Back",
+    NULL
+};
+
+static const char* const text_main_menu = "Main menu";
+static const char* const text_status = "Status";
+static const char* const text_communications = "Communications";
+static const char* const text_cargo_manifest = "Cargo manifest";
+static const char* const text_peripherals = "Peripherals";
+static const char* const text_repair_droid = "Repair droid";
+static const char* const text_tractor_beam = "Tractor beam";
+static const char* const text_not_connected = "Not connected";
+static const char* const text_no_cargo = "No cargo";
+static const char* const text_offline = "Offline";
+
+//
+
 static struct {
     uint8_t targeting_timer;
     uint8_t targeted_object;
@@ -348,19 +432,31 @@ static struct {
 
     uint8_t changing_target;
     uint8_t select;
+
+    uint8_t display_state;
+
+    uint32_t hidden_text_start_tick;
 } gameplay = { 0 };
 
 static void init_gameplay() {
     memset(&gameplay, 0, sizeof(gameplay));
-    gameplay.forward.y = FX_ONE;
+
+    gameplay.forward.x = -FX_ONE;
     gameplay.up.z = FX_ONE;
+
     gameplay.energy = FX_ONE;
-    init_objects();
+    gameplay.set_speed = 150;
+
+    {
+        fx3_t start_position;
+        fx3_mul(&start_position, &gameplay.forward, -FX_ONE * 5);
+        init_objects(&start_position);
+    }
 }
 
 static inline int is_targeting() {
     return gameplay.targeted_object != GAMEPLAY_INVALID_TARGET &&
-            objects[gameplay.targeted_object].type != OBJECT_TYPE_NONE;
+        objects[gameplay.targeted_object].type != OBJECT_TYPE_NONE;
 }
 
 //
@@ -525,7 +621,7 @@ static void update_timing(uint32_t dt_us) {
     timing.current_tick += timing.ticks_to_advance;
 }
 
-#define TURNING_ACCELERATION 450
+#define TURNING_ACCELERATION 400
 #define TURNING_SPEED_DAMPENING 63200
 #define MAX_TURNING_SPEED FX_ONE
 #define TURNING_SPEED_LOW_LIMIT 64
@@ -545,6 +641,10 @@ static void update_timing(uint32_t dt_us) {
 
 static const fx4_t IDENTITY_QUAT = { 0, 0, 0, FX_ONE };
 
+static uint16_t calc_object_distance(uint8_t index) {
+    return fx3_length(&object_tms[index].position) >> 8;
+}
+
 static void update() {
     uint16_t i = 0;
 
@@ -559,10 +659,88 @@ static void update() {
         sfx_processing();
     }
 
-    for (i = 0; i < 4; ++i) {
-        if (gameplay.select & (1 << i)) {
-            sfx_select();
+    switch (gameplay.display_state) {
+        case DISPLAY_STATE_MAIN: {
+            if (gameplay.select & 1) {
+                gameplay.display_state = DISPLAY_STATE_STATUS;
+                sfx_select();
+            } else if (gameplay.select & 2) {
+                gameplay.display_state = DISPLAY_STATE_COMMUNICATIONS;
+                sfx_select();
+            } else if (gameplay.select & 4) {
+                gameplay.display_state = DISPLAY_STATE_CARGO_MANIFEST;
+                sfx_select();
+            } else if (gameplay.select & 8) {
+                gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
+                sfx_select();
+            }
+
+            break;
         }
+
+        case DISPLAY_STATE_STATUS: {
+            if (gameplay.select & 1) {
+                gameplay.display_state = DISPLAY_STATE_MAIN;
+                sfx_back();
+            }
+
+            break;
+        }
+
+        case DISPLAY_STATE_COMMUNICATIONS: {
+            if (gameplay.select & 1) {
+                gameplay.display_state = DISPLAY_STATE_MAIN;
+                sfx_back();
+            }
+
+            break;
+        }
+
+        case DISPLAY_STATE_CARGO_MANIFEST: {
+            if (gameplay.select & 1) {
+                gameplay.display_state = DISPLAY_STATE_MAIN;
+                sfx_back();
+            }
+
+            break;
+        }
+
+        case DISPLAY_STATE_PERIPHERALS: {
+            if (gameplay.select & 1) {
+                gameplay.display_state = DISPLAY_STATE_MAIN;
+                sfx_back();
+            } else if (gameplay.select & 2) {
+                gameplay.display_state = DISPLAY_STATE_REPAIR_DROID;
+                sfx_select();
+            } else if (gameplay.select & 4) {
+                gameplay.display_state = DISPLAY_STATE_TRACTOR_BEAM;
+                sfx_select();
+            }
+
+            break;
+        }
+
+        case DISPLAY_STATE_REPAIR_DROID: {
+            if (gameplay.select & 1) {
+                gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
+                sfx_back();
+            }
+
+            break;
+        }
+
+        case DISPLAY_STATE_TRACTOR_BEAM: {
+            if (gameplay.select & 1) {
+                gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
+                sfx_back();
+            }
+
+            break;
+        }
+
+        default:
+            aw_assert(0);
+            break;
     }
 
     gameplay.select = 0;
@@ -660,15 +838,19 @@ static void update() {
 
             if (gameplay_target_speed) {
                 fx_t actual_speed = fx3_length(&gameplay.linear_velocity);
-                fx_t target_speed = fx_mul(gameplay_target_speed, GAMEPLAY_SPEED_TO_WORLD_MUL);
+                fx_t target_speed = fx_mul(gameplay_target_speed,
+                    GAMEPLAY_SPEED_TO_WORLD_MUL);
                 if (actual_speed < target_speed) {
                     fx3_t acceleration;
-                    fx3_mul(&acceleration, &gameplay.forward, fx_min(target_speed - actual_speed, LINEAR_ACCELERATION));
+                    fx_t mul = fx_min((LINEAR_ACCELERATION >> 3) +
+                        target_speed - actual_speed, LINEAR_ACCELERATION);
+                    fx3_mul(&acceleration, &gameplay.forward, mul);
                     fx3_add_ip(&gameplay.linear_velocity, &acceleration);
                 }
             }
 
-            gameplay.actual_speed = fx_mul(fx3_length(&gameplay.linear_velocity), GAMEPLAY_SPEED_FROM_WORLD_MUL);
+            gameplay.actual_speed = fx_mul(fx3_length(&gameplay.linear_velocity),
+                GAMEPLAY_SPEED_FROM_WORLD_MUL);
         }
 
         gameplay.energy -= energy_cut;
@@ -697,22 +879,49 @@ static void update() {
             update_debris(&camera_target, &movement);
         }
     }
+
+    if (gameplay.hidden_text_start_tick == 0 && is_targeting() &&
+        (objects[gameplay.targeted_object].type == OBJECT_TYPE_NAV_POINT ||
+        objects[gameplay.targeted_object].type == OBJECT_TYPE_JUMP_POINT) &&
+        calc_object_distance(gameplay.targeted_object) < 1000) {
+        gameplay.hidden_text_start_tick = timing.current_tick;
+    }
 }
 
 static void draw_fps() {
     int16_t text_width;
-    char buf[6] = { 0 };
+    char buf[8] = { 0 };
     uint16_t v = minu32(fps.average, 9999);
-    buf[0] = vsync ? '*' : ' ';
-    number_to_string(buf + 1, v);
+
+    if (vsync) {
+        buf[0] = '*';
+        buf[1] = ' ';
+        number_to_string(buf + 2, v);
+    } else {
+        number_to_string(buf, v);
+    }
+
     text_width = calc_text_width(buf);
     draw_text2(buf, 320 - 5 - text_width, 4, 8, 2);
+}
+
+#define CROSSHAIR_LOW_X 4
+#define CROSSHAIR_HIGH_X 9
+#define CROSSHAIR_LOW_Y 4
+#define CROSSHAIR_HIGH_Y 8
+
+static void draw_crosshair() {
+    draw_hline_no_check(SCREEN_CENTER_X - CROSSHAIR_HIGH_X, SCREEN_CENTER_X - CROSSHAIR_LOW_X, SCREEN_CENTER_Y, 91);
+    draw_hline_no_check(SCREEN_CENTER_X + CROSSHAIR_LOW_X, SCREEN_CENTER_X + CROSSHAIR_HIGH_X, SCREEN_CENTER_Y, 91);
+    draw_vline_no_check(SCREEN_CENTER_X, SCREEN_CENTER_Y - CROSSHAIR_HIGH_Y, SCREEN_CENTER_Y - CROSSHAIR_LOW_Y, 91);
+    draw_vline_no_check(SCREEN_CENTER_X, SCREEN_CENTER_Y + CROSSHAIR_LOW_Y, SCREEN_CENTER_Y + CROSSHAIR_HIGH_Y, 91);
 }
 
 #define TARGETING_BOX_HALF_WIDTH 12
 #define TARGETING_BOX_HALF_HEIGHT 10
 
-static void draw_targeting(const fx4x3_t* view_matrix, const fx3_t* target_position, uint8_t timer) {
+static void draw_targeting(const fx4x3_t* view_matrix,
+    const fx3_t* target_position, uint8_t object_type, uint8_t timer) {
     uint8_t w, h, scale;
 
     fx3_t p;
@@ -728,26 +937,57 @@ static void draw_targeting(const fx4x3_t* view_matrix, const fx3_t* target_posit
     h = (TARGETING_BOX_HALF_HEIGHT * scale) >> GAMEPLAY_TARGETING_DURATION_BITS;
 
     draw_box_outline(p.x - w, p.y - h, p.x + w, p.y + h, 6);
+
+    if (object_type == OBJECT_TYPE_NAV_POINT ||
+        object_type == OBJECT_TYPE_JUMP_POINT) {
+        draw_hline(p.x - 2, p.x + 2, p.y, 2);
+        draw_vline(p.x, p.y - 2, p.y + 2, 2);
+    }
 }
+
+#define HELP_TEXT_COLOR 4
+#define HELP_TEXT_X 10
+#define HELP_TEXT_Y 20
+#define HELP_TEXT_LINE_SPACING 7
+#define HELP_TEXT_PARAGRAPH_SPACING 12
 
 static void draw_help() {
-    int16_t y = 4;
-    draw_text("build 2023-10-15", 4, y, 4); y += 12;
-    draw_text("Sorry, this is nonplayable.", 4, y, 4); y += 12;
-    draw_text("v: Toggle vertical sync", 4, y, 4); y += 6;
-    draw_text("esc: Exit to DOS", 4, y, 4); y += 12;
-    draw_text("Made for DOS COM Jam 2023", 4, y, 4); y += 6;
-    draw_text("https://aarnig.itch.io/dos-com-jam", 4, y, 4); y += 6;
-    draw_text("aarni.gratseff@gmail.com", 4, y, 4); y += 6;
+    int16_t y = HELP_TEXT_Y;
+    draw_text2("Build 2023-10-15", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_PARAGRAPH_SPACING;
+
+    draw_text("[Controls]", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("Arrow keys: Maneuver", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("+/-: Speed adjustment", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("TAB: Afterburner", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("0: Full stop", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("T: Next target", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("1-9: Display selection", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_PARAGRAPH_SPACING;
+
+    draw_text("[Useful keys]", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("H/F1: Help", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("V: Toggle vertical sync", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("ESC: Exit to DOS", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_PARAGRAPH_SPACING;
+
+    draw_text("Made for DOS COM Jam 2023", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("https://aarnig.itch.io/dos-com-jam", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_text2("aarni.gratseff@gmail.com", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
 }
 
-static const char* const TEXT = "2669, Gemini sector, Troy system";
+static const char* const TEXT = "Thank you for your interest in this playable demo!";
 
 static void draw_texts() {
     char buffer[64];
-    int16_t x;
+    int16_t x, y, text_width;
     uint8_t i;
-    uint32_t t = timing.current_tick >> 4;
+    uint32_t t;
+
+    if (gameplay.hidden_text_start_tick == 0)
+        return;
+
+    t = (timing.current_tick - gameplay.hidden_text_start_tick) >> 4;
+
+    if (t > 256)
+        return;
 
     for (i = 0; i < 64; ++i) {
         uint32_t t_step;
@@ -771,11 +1011,15 @@ static void draw_texts() {
 
     buffer[i] = 0;
 
-    x = 6;
-    x = draw_text(buffer, x, 200 - (6 + 6), 0);
+    text_width = calc_text_width(buffer);
+
+    x = (SCREEN_WIDTH - text_width) >> 1;
+    y = SCREEN_HEIGHT >> 2;
+
+    x = draw_text(buffer, x, y, 4);
 
     if (((t >> 1) & 1) == 0)
-        draw_text_cursor(x, 200 - (6 + 6), 3);
+        draw_text_cursor(x, y, 7);
 }
 
 #if 0
@@ -815,84 +1059,63 @@ static void blit_image(int16_t x, int16_t y, int16_t src_x, int16_t src_y,
 
 #define LINE_SPACING 8
 
-static void draw_centered_text(const char* text, int16_t x, int16_t y) {
+static void draw_centered_text(const char* text, int16_t x, int16_t y, uint8_t c) {
     int16_t text_width = calc_text_width(text);
-    draw_text2(text, x - (text_width >> 1), y, 4, 2);
+    draw_text2(text, x - (text_width >> 1), y, c, 2);
 }
 
 static void draw_distance_text(int16_t x, int16_t y, fx_t distance) {
     static const char* DISTANCE_TEXT = "Distance: ";
     char buf[32] = { 0 };
     int16_t text_width;
-    uint16_t v = minu32(distance, 65535L);
     memcpy(buf, DISTANCE_TEXT, 10);
-    number_to_string(buf + 10, v);
+
+    if (distance < 32768) {
+        uint16_t v = minu32(distance, 65535L);
+        number_to_string(buf + 10, v);
+    } else {
+        buf[10] = 'f';
+        buf[11] = 'a';
+        buf[12] = 'r';
+    }
+
     text_width = calc_text_width(buf);
     draw_text2(buf, x - (text_width >> 1), y + LINE_SPACING, 4, 2);
 }
 
-#define CROSSHAIR_LOW_X 6
-#define CROSSHAIR_HIGH_X 10
-#define CROSSHAIR_LOW_Y 5
-#define CROSSHAIR_HIGH_Y 9
+static inline void put_pixel(int16_t x, int16_t y, uint8_t c) {
+    if (x < 0 || y < 0 || x > SCREEN_X_MAX || y > SCREEN_Y_MAX)
+        return;
 
-static void draw_crosshair() {
-    draw_hline_no_check(SCREEN_CENTER_X - CROSSHAIR_HIGH_X, SCREEN_CENTER_X - CROSSHAIR_LOW_X, SCREEN_CENTER_Y, 6);
-    draw_hline_no_check(SCREEN_CENTER_X + CROSSHAIR_LOW_X, SCREEN_CENTER_X + CROSSHAIR_HIGH_X, SCREEN_CENTER_Y, 6);
-    draw_vline_no_check(SCREEN_CENTER_X, SCREEN_CENTER_Y - CROSSHAIR_HIGH_Y, SCREEN_CENTER_Y - CROSSHAIR_LOW_Y, 6);
-    draw_vline_no_check(SCREEN_CENTER_X, SCREEN_CENTER_Y + CROSSHAIR_LOW_Y, SCREEN_CENTER_Y + CROSSHAIR_HIGH_Y, 6);
+    dblbuf[mul_by_screen_stride(y) + x] = c;
 }
 
-static void draw() {
-    fx3_t zero_vec = { 0, 0, 0 };
-    fx4x3_t view_matrix;
-    fx4x3_look_at(&view_matrix, &zero_vec, &gameplay.forward, &gameplay.up);
-
-    if (stars_enabled)
-        draw_stars(&view_matrix);
-
-    if (debris_enabled)
-        draw_debris(&view_matrix);
-
-#if 0
-    if (ship_enabled) {
-        fx4_t ship_rotation;
-        fx3_t ship_translation = { 0, 20000, 0 };
-        fx3_t rotation_axis = { 0, 0, FX_ONE };
-
-        fx_quat_rotation_axis_angle(&ship_rotation, &rotation_axis, timing.current_tick << 6);
-
-        draw_ship(&view_matrix, &ship_rotation, &ship_translation);
+static void draw_display_options(int16_t x, int16_t y, const char* const* texts) {
+    while (*texts) {
+        draw_text2(*texts, x, y, 4, 2);
+        y += LINE_SPACING;
+        texts++;
     }
-#endif
+}
 
-    draw_objects(&view_matrix);
+#define RADAR_X (SCREEN_WIDTH / 2)
+#define RADAR_Y (SCREEN_HEIGHT - 38)
 
-    flush_mesh_draw_buffer(draw_mode);
+#define RADAR_HALF_WIDTH 30
+#define RADAR_HALF_HEIGHT (RADAR_HALF_WIDTH * 5 / 6)
 
-    if (texts_enabled) {
-        if (help) {
-            draw_help();
-        } else {
-            //draw_texts();
-        }
-    }
+#define RADAR_INNER_HALF_WIDTH 12
+#define RADAR_INNER_HALF_HEIGHT 10
 
-    if (fps_enabled) {
-#if defined(BENCHMARK_ENABLED)
-        if (benchmark_result) {
-            char buf[6] = { 0 };
-            number_to_string(buf, minu32(benchmark_result, 65535L));
-            draw_text(buf, 320 - 48, 4, 8);
-        }
-#endif
+#define RADAR_COLOR_0 124
+#define RADAR_COLOR_1 122
+#define RADAR_CROSS_COLOR 115
 
-        draw_fps();
-    }
-
+static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
     if (is_targeting())
-        draw_targeting(&view_matrix,
+        draw_targeting(view_matrix,
             &object_tms[gameplay.targeted_object].position,
+            objects[gameplay.targeted_object].type,
             gameplay.targeting_timer);
 
     draw_crosshair();
@@ -907,13 +1130,59 @@ static void draw() {
 
         {
             int16_t tx = x + 5;
-            int16_t ty = y + 5;
+            int16_t ty = y + 5 + LINE_SPACING;
+            const char* caption = NULL;
 
-            draw_text2("1. Repair Droid", tx, ty, 4, 2); ty += LINE_SPACING;
-            draw_text2("2. Tractor Beam", tx, ty, 4, 2); ty += LINE_SPACING;
-            draw_text2("3. Secondary Display", tx, ty, 4, 2); ty += LINE_SPACING;
-            draw_text2("4. Back", tx, ty, 4, 2); ty += LINE_SPACING;
+            switch (gameplay.display_state) {
+                case DISPLAY_STATE_MAIN:
+                    caption = text_main_menu;
+                    draw_display_options(tx, ty, display_options_main);
+                    break;
 
+                case DISPLAY_STATE_STATUS:
+                    caption = text_status;
+                    draw_display_options(tx, ty, display_options_status);
+                    break;
+
+                case DISPLAY_STATE_COMMUNICATIONS:
+                    caption = text_communications;
+                    draw_display_options(tx, ty, display_options_communications);
+                    if ((timing.current_tick >> 5) & 1)
+                        draw_centered_text(text_offline, x + (width >> 1), y + (height >> 1) - 2, 12);
+                    break;
+
+                case DISPLAY_STATE_CARGO_MANIFEST:
+                    caption = text_cargo_manifest;
+                    draw_display_options(tx, ty, display_options_cargo_manifest);
+                    draw_centered_text(text_no_cargo, x + (width >> 1), y + (height >> 1) - 2, 4);
+                    break;
+
+                case DISPLAY_STATE_PERIPHERALS:
+                    caption = text_peripherals;
+                    draw_display_options(tx, ty, display_options_peripherals);
+                    break;
+
+                case DISPLAY_STATE_REPAIR_DROID:
+                    caption = text_tractor_beam;
+                    draw_display_options(tx, ty, display_options_repair_droid);
+                    if ((timing.current_tick >> 5) & 1)
+                        draw_centered_text(text_not_connected, x + (width >> 1), y + (height >> 1) - 2, 12);
+                    break;
+
+                case DISPLAY_STATE_TRACTOR_BEAM:
+                    caption = text_tractor_beam;
+                    draw_display_options(tx, ty, display_options_tractor_beam);
+                    if ((timing.current_tick >> 5) & 1)
+                        draw_centered_text(text_not_connected, x + (width >> 1), y + (height >> 1) - 2, 12);
+                    break;
+
+                default:
+                    aw_assert(0);
+                    break;
+            }
+
+            if (caption)
+                draw_centered_text(caption, x + (width >> 1), y + 5, 4);
         }
 
         x = SCREEN_WIDTH - 8 - width;
@@ -947,11 +1216,11 @@ static void draw() {
                     break;
             }
 
-            if (object_name) draw_centered_text(object_name, x + (width >> 1), y + 5);
+            if (object_name) draw_centered_text(object_name, x + (width >> 1), y + 5, 4);
             draw_distance_text(x + (width >> 1), y + height - 12 - 5,
-                fx3_length(&object_tms[gameplay.targeted_object].position) >> 8);
+                calc_object_distance(gameplay.targeted_object));
         } else {
-            draw_centered_text("No target", x + (width >> 1), y + 5);
+            draw_centered_text("No target", x + (width >> 1), y + 5, 4);
         }
     }
 
@@ -993,6 +1262,100 @@ static void draw() {
             draw_box_outline(x, y, x + 2, y + 6, 0);
             x += 4;
         }
+    }
+
+    draw_hline_no_check(RADAR_X - RADAR_HALF_WIDTH,
+        RADAR_X - RADAR_INNER_HALF_WIDTH, RADAR_Y, RADAR_CROSS_COLOR);
+    draw_hline_no_check(RADAR_X + RADAR_INNER_HALF_WIDTH,
+        RADAR_X + RADAR_HALF_WIDTH, RADAR_Y, RADAR_CROSS_COLOR);
+
+    draw_vline_no_check(RADAR_X, RADAR_Y - RADAR_HALF_HEIGHT,
+        RADAR_Y - RADAR_INNER_HALF_HEIGHT, RADAR_CROSS_COLOR);
+    draw_vline_no_check(RADAR_X, RADAR_Y + RADAR_INNER_HALF_HEIGHT,
+        RADAR_Y + RADAR_HALF_HEIGHT, RADAR_CROSS_COLOR);
+
+    {
+        uint8_t i;
+        int16_t x, y;
+        fx3_t dir;
+        for (i = 0; i < num_objects; ++i) {
+            fx_transform_point(&dir, view_matrix, &object_tms[i].position);
+            if (dir.z < 0)
+                dir.z = 0;
+
+            fx3_normalize_ip(&dir);
+
+            x = RADAR_X + fx_mul(dir.x, RADAR_HALF_WIDTH);
+            y = RADAR_Y - fx_mul(dir.y, RADAR_HALF_HEIGHT);
+
+            if (gameplay.targeted_object == i) {
+                put_pixel(x, y - 1, RADAR_COLOR_0);
+                put_pixel(x - 1, y, RADAR_COLOR_0);
+                put_pixel(x, y, RADAR_COLOR_1);
+                put_pixel(x + 1, y, RADAR_COLOR_0);
+                put_pixel(x, y + 1, RADAR_COLOR_0);
+            } else {
+                put_pixel(x, y, RADAR_COLOR_0);
+            }
+        }
+    }
+
+    {
+#define METER_X0 (SCREEN_WIDTH / 2 - 40)
+#define METER_X1 (METER_X0 + 8)
+#define METER_Y (SCREEN_HEIGHT - 17)
+#define METER_C 122
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y, METER_C);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 2, METER_C + 1);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 4, METER_C + 2);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 6, METER_C + 3);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 8, METER_C + 4);
+#undef METER_X0
+#define METER_X0 (SCREEN_WIDTH / 2 + 40 - 8)
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y, METER_C + 4);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 2, METER_C + 3);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 4, METER_C + 2);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 6, METER_C + 1);
+        draw_hline_no_check(METER_X0, METER_X1, METER_Y + 8, METER_C);
+#undef METER_X0
+#undef METER_X1
+#undef METER_Y
+#undef METER_C
+    }
+
+    draw_texts();
+}
+
+static void draw() {
+    fx4x3_t view_matrix;
+    fx4x3_look_at(&view_matrix, NULL, &gameplay.forward, &gameplay.up);
+
+    if (stars_enabled)
+        draw_stars(&view_matrix);
+
+    if (debris_enabled)
+        draw_debris(&view_matrix);
+
+    draw_objects(&view_matrix);
+
+    flush_mesh_draw_buffer(draw_mode);
+
+    if (help) {
+        draw_help();
+    } else {
+        draw_gameplay_ui(&view_matrix);
+    }
+
+    if (fps_enabled) {
+#if defined(BENCHMARK_ENABLED)
+        if (benchmark_result) {
+            char buf[6] = { 0 };
+            number_to_string(buf, minu32(benchmark_result, 65535L));
+            draw_text(buf, 320 - 48, 4, 8);
+        }
+#endif
+
+        draw_fps();
     }
 }
 

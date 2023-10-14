@@ -28,8 +28,8 @@ static const sfx_event_type_t sfx_event_types[NUM_SFX_EVENT_TYPES] = {
     { 50000, 80, 57, 32 },
     { 40000, 80, 62, 20 },
     { 20000, 80, 62, 28 },
-    { 30000, 81, 57, 16 },
-    { 200000, 121, 57, 32 },
+    { 30000, 81, 57, 24 },
+    { 200000, 121, 57, 40 },
 };
 
 static const sfx_event_type_t* get_sfx_event_type_data(uint8_t type) {

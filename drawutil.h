@@ -12,6 +12,7 @@ static inline void draw_darkened_box(uint16_t x0, uint16_t y0, uint16_t x1, uint
 
     for (y = y0; y <= y1; ++y) {
         for (x = x0; x <= x1; ++x) {
+            aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
             c = *tgt;
             *tgt++ = c + 128;
         }
@@ -20,19 +21,53 @@ static inline void draw_darkened_box(uint16_t x0, uint16_t y0, uint16_t x1, uint
     }
 }
 
-static inline void draw_hline_no_check(int16_t x0, int16_t x1, int16_t y, uint8_t c) {
+static inline void draw_hline(int16_t x0, int16_t x1, int16_t y, uint8_t c) {
     uint8_t __far* tgt, __far* tgt_end;
+    aw_assert(x0 <= x1);
+
+    if (y < 0 || y > SCREEN_Y_MAX || x0 > SCREEN_X_MAX || x1 < 0)
+        return;
+
+    x0 = clamp16(x0, 0, SCREEN_X_MAX);
+    x1 = clamp16(x1, 0, SCREEN_X_MAX);
+
     tgt = dblbuf + mul_by_screen_stride(y) + x0;
     aw_assert(tgt >= dblbuf);
     tgt_end = tgt + (x1 - x0 + 1);
-    aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
     while (tgt < tgt_end) {
+        aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
         *tgt++ = c;
+    }
+}
+
+static inline void draw_hline_no_check(int16_t x0, int16_t x1, int16_t y, uint8_t c) {
+    uint8_t __far* tgt, __far* tgt_end;
+    aw_assert(x0 <= x1);
+    tgt = dblbuf + mul_by_screen_stride(y) + x0;
+    aw_assert(tgt >= dblbuf);
+    tgt_end = tgt + (x1 - x0 + 1);
+    while (tgt < tgt_end) {
+        aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
+        *tgt++ = c;
+    }
+}
+
+static inline void draw_darkened_hline_no_check(int16_t x0, int16_t x1, int16_t y) {
+    uint8_t __far* tgt, __far* tgt_end;
+    aw_assert(x0 <= x1);
+    tgt = dblbuf + mul_by_screen_stride(y) + x0;
+    aw_assert(tgt >= dblbuf);
+    tgt_end = tgt + (x1 - x0 + 1);
+    while (tgt < tgt_end) {
+        aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
+        *tgt += 128;
+        tgt++;
     }
 }
 
 static inline void draw_vline(int16_t x, int16_t y0, int16_t y1, uint8_t c) {
     uint8_t __far* tgt, __far* tgt_end;
+    aw_assert(y0 <= y1);
 
     if (x < 0 || x > SCREEN_X_MAX || y0 > SCREEN_Y_MAX || y1 < 0)
         return;
@@ -42,9 +77,9 @@ static inline void draw_vline(int16_t x, int16_t y0, int16_t y1, uint8_t c) {
 
     tgt = dblbuf + mul_by_screen_stride(y0) + x;
     aw_assert(tgt >= dblbuf);
-    tgt_end = dblbuf + mul_by_screen_stride(y1 + 1) + x;
-    aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
+    tgt_end = tgt + mul_by_screen_stride(y1 - y0 + 1);
     while (tgt < tgt_end) {
+        aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
         *tgt = c;
         tgt += SCREEN_STRIDE;
     }
@@ -52,12 +87,26 @@ static inline void draw_vline(int16_t x, int16_t y0, int16_t y1, uint8_t c) {
 
 static inline void draw_vline_no_check(int16_t x, int16_t y0, int16_t y1, uint8_t c) {
     uint8_t __far* tgt, __far* tgt_end;
+    aw_assert(y0 <= y1);
     tgt = dblbuf + mul_by_screen_stride(y0) + x;
     aw_assert(tgt >= dblbuf);
     tgt_end = dblbuf + mul_by_screen_stride(y1 + 1) + x;
-    aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
     while (tgt < tgt_end) {
+        aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
         *tgt = c;
+        tgt += SCREEN_STRIDE;
+    }
+}
+
+static inline void draw_darkened_vline_no_check(int16_t x, int16_t y0, int16_t y1) {
+    uint8_t __far* tgt, __far* tgt_end;
+    aw_assert(y0 <= y1);
+    tgt = dblbuf + mul_by_screen_stride(y0) + x;
+    aw_assert(tgt >= dblbuf);
+    tgt_end = dblbuf + mul_by_screen_stride(y1 + 1) + x;
+    while (tgt < tgt_end) {
+        aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
+        *tgt += 128;
         tgt += SCREEN_STRIDE;
     }
 }
@@ -75,8 +124,8 @@ static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t 
             tgt = dblbuf + mul_by_screen_stride(y0) + left;
             aw_assert(tgt >= dblbuf);
             tgt_end = tgt + (right - left + 1);
-            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
             while (tgt < tgt_end) {
+                aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
                 *tgt++ = c;
             }
         }
@@ -85,8 +134,8 @@ static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t 
             tgt = dblbuf + mul_by_screen_stride(y1) + left;
             aw_assert(tgt >= dblbuf);
             tgt_end = tgt + (right - left + 1);
-            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
             while (tgt < tgt_end) {
+                aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
                 *tgt++ = c;
             }
         }
@@ -97,8 +146,8 @@ static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t 
             tgt = dblbuf + mul_by_screen_stride(top + 1) + x0;
             aw_assert(tgt >= dblbuf);
             tgt_end = tgt + mul_by_screen_stride(bottom - top - 1);
-            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
             while (tgt < tgt_end) {
+                aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
                 *tgt = c;
                 tgt += SCREEN_WIDTH;
             }
@@ -108,8 +157,8 @@ static inline void draw_box_outline(int16_t x0, int16_t y0, int16_t x1, int16_t 
             tgt = dblbuf + mul_by_screen_stride(top + 1) + x1;
             aw_assert(tgt >= dblbuf);
             tgt_end = tgt + mul_by_screen_stride(bottom - top - 1);
-            aw_assert(tgt_end <= dblbuf + SCREEN_NUM_PIXELS);
             while (tgt < tgt_end) {
+                aw_assert(tgt < dblbuf + SCREEN_NUM_PIXELS);
                 *tgt = c;
                 tgt += SCREEN_WIDTH;
             }

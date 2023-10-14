@@ -830,7 +830,11 @@ static inline void fx4x3_look_at(fx4x3_t* m, const fx3_t* eye,
     const fx3_t* target, const fx3_t* up) {
     fx3_t view_forward, view_right, view_up, view_translation;
 
-    fx3_sub(&view_forward, target, eye);
+    if (eye)
+        fx3_sub(&view_forward, target, eye);
+    else
+        view_forward = *target;
+
     fx3_normalize_ip(&view_forward);
 
     fx3_cross(&view_right, &view_forward, up);
@@ -851,12 +855,17 @@ static inline void fx4x3_look_at(fx4x3_t* m, const fx3_t* eye,
     m->m[FX4X3_21] = view_forward.y;
     m->m[FX4X3_22] = view_forward.z;
 
-    fx3_neg(&view_translation, eye);
-    fx_transform_vector_ip((const fx3x3_t*)m, &view_translation);
-
-    m->m[FX4X3_30] = view_translation.x;
-    m->m[FX4X3_31] = view_translation.y;
-    m->m[FX4X3_32] = view_translation.z;
+    if (eye) {
+        fx3_neg(&view_translation, eye);
+        fx_transform_vector_ip((const fx3x3_t*)m, &view_translation);
+        m->m[FX4X3_30] = view_translation.x;
+        m->m[FX4X3_31] = view_translation.y;
+        m->m[FX4X3_32] = view_translation.z;
+    } else {
+        m->m[FX4X3_30] = 0;
+        m->m[FX4X3_31] = 0;
+        m->m[FX4X3_32] = 0;
+    }
 }
 
 static inline void fx4x3_mul(fx4x3_t* r, const fx4x3_t* a, const fx4x3_t* b) {
