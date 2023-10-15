@@ -17,7 +17,7 @@ typedef struct sfx_event_type_t {
     uint32_t velocity;
 } sfx_event_type_t;
 
-#define NUM_SFX_EVENT_TYPES 10
+#define NUM_SFX_EVENT_TYPES 11
 
 static const sfx_event_type_t sfx_event_types[NUM_SFX_EVENT_TYPES] = {
     { 50000, 0, 0, 0 },
@@ -30,6 +30,7 @@ static const sfx_event_type_t sfx_event_types[NUM_SFX_EVENT_TYPES] = {
     { 20000, 80, 62, 28 },
     { 30000, 81, 57, 24 },
     { 200000, 121, 57, 40 },
+    { 80000, 80, 50, 24 },
 };
 
 static const sfx_event_type_t* get_sfx_event_type_data(uint8_t type) {
@@ -119,6 +120,12 @@ static inline void sfx_error() {
     _disable();
     push_sfx_event(2);
     push_sfx_event(4);
+    _enable();
+}
+
+static inline void sfx_short_error() {
+    _disable();
+    push_sfx_event(11);
     _enable();
 }
 

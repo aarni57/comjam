@@ -1,6 +1,6 @@
 @echo off
 
-wcc -3 -ms -oailrt -s -oe=64 main.c
+wcc -3 -ms -oailrt -s -oe=40 main.c
 IF ERRORLEVEL 1 GOTO exit
 
 REM wdis -s -a -l main.obj

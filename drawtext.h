@@ -72,7 +72,7 @@ static void blit_char(int16_t x, int16_t y,
     }
 }
 
-static int16_t draw_text2(const char* text, int16_t left, int16_t top,
+static int16_t draw_text_impl(const char* text, int16_t left, int16_t top,
     uint8_t color_start, uint8_t color_max) {
     int16_t x = left;
     int16_t y = top;
@@ -137,7 +137,17 @@ static int16_t calc_text_width(const char* text) {
 
 static inline int16_t draw_text(const char* text, int16_t left, int16_t top,
     uint8_t color_start) {
-    return draw_text2(text, left, top, color_start, 255);
+    return draw_text_impl(text, left, top, color_start, 255);
+}
+
+static inline int16_t draw_dimmed_text(const char* text, int16_t left,
+    int16_t top, uint8_t color_start) {
+    return draw_text_impl(text, left, top, color_start, 2);
+}
+
+static void draw_centered_text(const char* text, int16_t x, int16_t y, uint8_t c) {
+    int16_t text_width = calc_text_width(text);
+    draw_dimmed_text(text, x - (text_width >> 1), y, c);
 }
 
 static void draw_text_cursor(int16_t left, int16_t top, uint8_t color) {

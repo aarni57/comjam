@@ -472,6 +472,7 @@ static struct {
     uint8_t select;
 
     uint8_t display_state;
+    uint8_t menu_tick;
 
     uint32_t hidden_text_start_tick;
 } gameplay = { 0 };
@@ -705,136 +706,143 @@ static void update() {
         sfx_processing();
     }
 
-    switch (gameplay.display_state) {
-        case DISPLAY_STATE_MAIN: {
-            if (gameplay.select & 2) {
-                gameplay.display_state = DISPLAY_STATE_SCAN;
-                sfx_select();
-            } else if (gameplay.select & 4) {
-                gameplay.display_state = DISPLAY_STATE_WEAPONS;
-                sfx_select();
-            } else if (gameplay.select & 8) {
-                gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
-                sfx_select();
-            } else if (gameplay.select & 16) {
-                gameplay.display_state = DISPLAY_STATE_COMMUNICATIONS;
-                sfx_select();
-            } else if (gameplay.select & 32) {
-                gameplay.display_state = DISPLAY_STATE_CARGO_MANIFEST;
-                sfx_select();
-            } else if (gameplay.select & 64) {
-                gameplay.display_state = DISPLAY_STATE_DAMAGE_REPORT;
-                sfx_select();
+    if (gameplay.select != 0xff) {
+        switch (gameplay.display_state) {
+            case DISPLAY_STATE_MAIN: {
+                if (gameplay.select & 2) {
+                    gameplay.display_state = DISPLAY_STATE_SCAN;
+                    sfx_select();
+                } else if (gameplay.select & 4) {
+                    gameplay.display_state = DISPLAY_STATE_WEAPONS;
+                    sfx_select();
+                } else if (gameplay.select & 8) {
+                    gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
+                    sfx_select();
+                } else if (gameplay.select & 16) {
+                    gameplay.display_state = DISPLAY_STATE_COMMUNICATIONS;
+                    sfx_select();
+                } else if (gameplay.select & 32) {
+                    gameplay.display_state = DISPLAY_STATE_CARGO_MANIFEST;
+                    sfx_select();
+                } else if (gameplay.select & 64) {
+                    gameplay.display_state = DISPLAY_STATE_DAMAGE_REPORT;
+                    sfx_select();
+                }
+
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_SCAN: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_MAIN;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_SCAN: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_MAIN;
-                sfx_back();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_WEAPONS: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_MAIN;
+                    sfx_back();
+                } else if (gameplay.select & 2) {
+                    gameplay.display_state = DISPLAY_STATE_PRIMARY_WEAPONS;
+                    sfx_select();
+                } else if (gameplay.select & 4) {
+                    gameplay.display_state = DISPLAY_STATE_SECONDARY_WEAPONS;
+                    sfx_select();
+                }
 
-        case DISPLAY_STATE_WEAPONS: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_MAIN;
-                sfx_back();
-            } else if (gameplay.select & 2) {
-                gameplay.display_state = DISPLAY_STATE_PRIMARY_WEAPONS;
-                sfx_select();
-            } else if (gameplay.select & 4) {
-                gameplay.display_state = DISPLAY_STATE_SECONDARY_WEAPONS;
-                sfx_select();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_PRIMARY_WEAPONS: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_WEAPONS;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_PRIMARY_WEAPONS: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_WEAPONS;
-                sfx_back();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_SECONDARY_WEAPONS: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_WEAPONS;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_SECONDARY_WEAPONS: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_WEAPONS;
-                sfx_back();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_DAMAGE_REPORT: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_MAIN;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_DAMAGE_REPORT: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_MAIN;
-                sfx_back();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_COMMUNICATIONS: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_MAIN;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_COMMUNICATIONS: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_MAIN;
-                sfx_back();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_CARGO_MANIFEST: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_MAIN;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_CARGO_MANIFEST: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_MAIN;
-                sfx_back();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_PERIPHERALS: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_MAIN;
+                    sfx_back();
+                } else if (gameplay.select & 2) {
+                    gameplay.display_state = DISPLAY_STATE_REPAIR_DROID;
+                    sfx_select();
+                } else if (gameplay.select & 4) {
+                    gameplay.display_state = DISPLAY_STATE_TRACTOR_BEAM;
+                    sfx_select();
+                }
 
-        case DISPLAY_STATE_PERIPHERALS: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_MAIN;
-                sfx_back();
-            } else if (gameplay.select & 2) {
-                gameplay.display_state = DISPLAY_STATE_REPAIR_DROID;
-                sfx_select();
-            } else if (gameplay.select & 4) {
-                gameplay.display_state = DISPLAY_STATE_TRACTOR_BEAM;
-                sfx_select();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_REPAIR_DROID: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_REPAIR_DROID: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
-                sfx_back();
+                break;
             }
 
-            break;
-        }
+            case DISPLAY_STATE_TRACTOR_BEAM: {
+                if (gameplay.select & 1) {
+                    gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
+                    sfx_back();
+                }
 
-        case DISPLAY_STATE_TRACTOR_BEAM: {
-            if (gameplay.select & 1) {
-                gameplay.display_state = DISPLAY_STATE_PERIPHERALS;
-                sfx_back();
+                break;
             }
 
-            break;
+            default:
+                aw_assert(0);
+                break;
         }
-
-        default:
-            aw_assert(0);
-            break;
+    } else {
+        if (gameplay.display_state != DISPLAY_STATE_MAIN) {
+            gameplay.display_state = DISPLAY_STATE_MAIN;
+            sfx_back();
+        }
     }
 
     gameplay.select = 0;
@@ -842,6 +850,22 @@ static void update() {
     for (i = 0; i < timing.ticks_to_advance; ++i) {
         uint16_t gameplay_target_speed;
         fx_t energy_cut = 0;
+
+        switch (gameplay.display_state) {
+            case DISPLAY_STATE_PRIMARY_WEAPONS:
+            case DISPLAY_STATE_SECONDARY_WEAPONS:
+            case DISPLAY_STATE_COMMUNICATIONS:
+            case DISPLAY_STATE_REPAIR_DROID:
+            case DISPLAY_STATE_TRACTOR_BEAM:
+                if ((gameplay.menu_tick & 63) == 32) {
+                    sfx_short_error();
+                }
+
+                break;
+
+            default:
+                break;
+        }
 
         {
             uint16_t previous_set_speed = gameplay.set_speed;
@@ -987,14 +1011,16 @@ static void update() {
             } else {
                 gameplay.scan_timer = 0;
             }
-
-            if (gameplay.hidden_text_start_tick == 0 &&
-                (objects[gameplay.targeted_object].type == OBJECT_TYPE_NAV_POINT ||
-                objects[gameplay.targeted_object].type == OBJECT_TYPE_JUMP_POINT) &&
-                gameplay.distance_to_target < 1000) {
-                gameplay.hidden_text_start_tick = timing.current_tick;
-            }
         }
+
+        gameplay.menu_tick++;
+    }
+
+    if (gameplay.hidden_text_start_tick == 0 &&
+        (objects[gameplay.targeted_object].type == OBJECT_TYPE_NAV_POINT ||
+         objects[gameplay.targeted_object].type == OBJECT_TYPE_JUMP_POINT) &&
+        gameplay.distance_to_target < 1000) {
+        gameplay.hidden_text_start_tick = timing.current_tick;
     }
 }
 
@@ -1012,7 +1038,7 @@ static void draw_fps() {
     }
 
     text_width = calc_text_width(buf);
-    draw_text2(buf, 320 - 5 - text_width, 4, 8, 2);
+    draw_dimmed_text(buf, 320 - 5 - text_width, 4, 8);
 }
 
 #define CROSSHAIR_LOW_X 4
@@ -1057,31 +1083,41 @@ static void draw_targeting(const fx4x3_t* view_matrix,
 
 #define HELP_TEXT_COLOR 4
 #define HELP_TEXT_X 10
-#define HELP_TEXT_Y 20
+#define HELP_TEXT_X2 70
+#define HELP_TEXT_Y 16
 #define HELP_TEXT_LINE_SPACING 7
-#define HELP_TEXT_PARAGRAPH_SPACING 12
+#define HELP_TEXT_PARAGRAPH_SPACING 13
+
+static void draw_help_line(const char* left_text, const char* right_text, int16_t y) {
+    draw_hline_no_check(HELP_TEXT_X, HELP_TEXT_X + 164, y + 6, HELP_TEXT_COLOR + 1);
+    draw_centered_text(left_text, HELP_TEXT_X + 30, y, HELP_TEXT_COLOR);
+    draw_dimmed_text(right_text, HELP_TEXT_X2, y, HELP_TEXT_COLOR);
+}
 
 static void draw_help() {
     int16_t y = HELP_TEXT_Y;
-    draw_text2("Build 2023-10-15", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_PARAGRAPH_SPACING;
+    draw_dimmed_text("Build 2023-10-15", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_PARAGRAPH_SPACING;
 
-    draw_text("[Controls]", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("Arrow keys: Maneuver", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("+/-: Speed adjustment", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("TAB: Afterburner", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("0: Full stop", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("T: Next target", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("1-6: Display selection", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_PARAGRAPH_SPACING;
-    draw_text2("Backspace: Back to previous menu", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_PARAGRAPH_SPACING;
+    draw_text("[Controls]", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("ARROWS", "Turn", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("+/-", "Speed adjustment", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("TAB", "Afterburner", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("0", "Full stop", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("SPACE", "Next target", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("1-6", "Display selection", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("BACKSPACE", "Back to previous menu", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("TILDE", "Back to main menu", y); y += HELP_TEXT_PARAGRAPH_SPACING;
 
-    draw_text("[Useful keys]", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("H/F1: Help", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("V: Toggle vertical sync", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("ESC: Exit to DOS", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_PARAGRAPH_SPACING;
+    draw_text("[Useful keys]", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("H/F1", "Help", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("V", "Toggle vertical sync", y); y += HELP_TEXT_LINE_SPACING + 1;
+    draw_help_line("ESC", "Exit to DOS", y); y += HELP_TEXT_PARAGRAPH_SPACING;
 
     draw_text("Made for DOS COM Jam 2023", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("https://aarnig.itch.io/dos-com-jam", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
-    draw_text2("aarni.gratseff@gmail.com", HELP_TEXT_X, y, HELP_TEXT_COLOR, 2); y += HELP_TEXT_LINE_SPACING;
+    draw_dimmed_text("https://aarnig.itch.io/dos-com-jam", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_LINE_SPACING;
+    draw_dimmed_text("aarni.gratseff@gmail.com", HELP_TEXT_X, y, HELP_TEXT_COLOR); y += HELP_TEXT_PARAGRAPH_SPACING;
+
+    draw_text("Greetings to DOS Shareware Zone", HELP_TEXT_X, y, HELP_TEXT_COLOR);
 }
 
 static const char* const TEXT = "Thank you for your interest in this project!";
@@ -1152,11 +1188,6 @@ static void draw_line_mesh(int16_t x, int16_t y) {
 
 #define LINE_SPACING 7
 
-static void draw_centered_text(const char* text, int16_t x, int16_t y, uint8_t c) {
-    int16_t text_width = calc_text_width(text);
-    draw_text2(text, x - (text_width >> 1), y, c, 2);
-}
-
 static void draw_distance_text(int16_t x, int16_t y, uint16_t distance) {
     static const char* DISTANCE_TEXT = "Distance: ";
     char buf[32] = { 0 };
@@ -1173,12 +1204,12 @@ static void draw_distance_text(int16_t x, int16_t y, uint16_t distance) {
     }
 
     text_width = calc_text_width(buf);
-    draw_text2(buf, x - (text_width >> 1), y + LINE_SPACING, 4, 2);
+    draw_dimmed_text(buf, x - (text_width >> 1), y + LINE_SPACING, 4);
 }
 
 static int16_t draw_display_options(int16_t x, int16_t y, const char* const* texts) {
     while (*texts) {
-        draw_text2(*texts, x, y, 4, 2);
+        draw_dimmed_text(*texts, x, y, 4);
         y += LINE_SPACING;
         texts++;
     }
@@ -1218,7 +1249,7 @@ static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
 
         {
             int16_t tx = x + 5;
-            int16_t ty = y + 5 + LINE_SPACING;
+            int16_t ty = y + 5 + LINE_SPACING + 2;
             const char* caption = NULL;
 
             switch (gameplay.display_state) {
@@ -1246,7 +1277,7 @@ static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
 
                                 case 1:
                                     text = "Contains:";
-                                    text2 = "Coffee for programmers";
+                                    text2 = "Coffee";
                                     break;
 
                                 case 2:
@@ -1298,21 +1329,21 @@ static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
                 case DISPLAY_STATE_PRIMARY_WEAPONS:
                     caption = text_primary_weapons;
                     draw_display_options(tx, ty, display_options_primary_weapons);
-                    if ((timing.current_tick >> 5) & 1)
+                    if ((gameplay.menu_tick >> 5) & 1)
                         draw_centered_text(text_malfunction, x + (width >> 1), y + (height >> 1) - 2, 12);
                     break;
 
                 case DISPLAY_STATE_SECONDARY_WEAPONS:
                     caption = text_secondary_weapons;
                     draw_display_options(tx, ty, display_options_secondary_weapons);
-                    if ((timing.current_tick >> 5) & 1)
+                    if ((gameplay.menu_tick >> 5) & 1)
                         draw_centered_text(text_malfunction, x + (width >> 1), y + (height >> 1) - 2, 12);
                     break;
 
                 case DISPLAY_STATE_DAMAGE_REPORT:
                     caption = text_damage_report;
                     ty = draw_display_options(tx, ty, display_options_damage_report);
-                    ty += 4;
+                    ty += 2;
                     draw_centered_text(text_afterburners, x + (width >> 1), ty, 3); ty += LINE_SPACING;
                     draw_centered_text(text_generators, x + (width >> 1), ty, 3); ty += LINE_SPACING;
                     draw_centered_text(text_jump_drive, x + (width >> 1), ty, 3); ty += LINE_SPACING;
@@ -1325,7 +1356,7 @@ static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
                 case DISPLAY_STATE_COMMUNICATIONS:
                     caption = text_communications;
                     draw_display_options(tx, ty, display_options_communications);
-                    if ((timing.current_tick >> 5) & 1)
+                    if ((gameplay.menu_tick >> 5) & 1)
                         draw_centered_text(text_offline, x + (width >> 1), y + (height >> 1) - 2, 12);
                     break;
 
@@ -1343,14 +1374,14 @@ static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
                 case DISPLAY_STATE_REPAIR_DROID:
                     caption = text_repair_droid;
                     draw_display_options(tx, ty, display_options_repair_droid);
-                    if ((timing.current_tick >> 5) & 1)
+                    if ((gameplay.menu_tick >> 5) & 1)
                         draw_centered_text(text_not_connected, x + (width >> 1), y + (height >> 1) - 2, 12);
                     break;
 
                 case DISPLAY_STATE_TRACTOR_BEAM:
                     caption = text_tractor_beam;
                     draw_display_options(tx, ty, display_options_tractor_beam);
-                    if ((timing.current_tick >> 5) & 1)
+                    if ((gameplay.menu_tick >> 5) & 1)
                         draw_centered_text(text_not_connected, x + (width >> 1), y + (height >> 1) - 2, 12);
                     break;
 
@@ -1435,18 +1466,18 @@ static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
         char buf[5] = { 0 };
         int16_t text_width;
 
-        draw_text2("SET", left, y, 4, 2);
-        draw_text2("ACT", right, y, 4, 2);
+        draw_dimmed_text("SET", left, y, 4);
+        draw_dimmed_text("ACT", right, y, 4);
 
         y += LINE_SPACING;
 
         number_to_string(buf, gameplay.afterburner ? GAMEPLAY_AFTERBURNER_SPEED : gameplay.set_speed);
         text_width = calc_text_width(buf);
-        draw_text2(buf, left + 7 - (text_width >> 1), y, 4, 2);
+        draw_dimmed_text(buf, left + 7 - (text_width >> 1), y, 4);
 
         number_to_string(buf, gameplay.actual_speed);
         text_width = calc_text_width(buf);
-        draw_text2(buf, right + 7 - (text_width >> 1), y, 4, 2);
+        draw_dimmed_text(buf, right + 7 - (text_width >> 1), y, 4);
     }
 
     {
@@ -1455,7 +1486,7 @@ static void draw_gameplay_ui(const fx4x3_t* view_matrix) {
         uint16_t x = SCREEN_WIDTH / 2 - 31;
         uint16_t y = 5;
 
-        draw_text2("E", x - 7, y + 1, 8, 2);
+        draw_dimmed_text("E", x - 7, y + 1, 8);
 
         for (i = 0; i < energy_bars; ++i) {
             draw_box_outline_no_check(x, y, x + 2, y + 6, 11);
@@ -1588,7 +1619,7 @@ static void update_input() {
             case KEY_TAB: gameplay.afterburner = 1; break;
             case KEY_TAB | KEY_UP_FLAG: gameplay.afterburner = 0; break;
 
-            case KEY_T: gameplay.changing_target = 1; break;
+            case KEY_SPACE: gameplay.changing_target = 1; break;
 
             case KEY_ESC:
                 quit = 1;
@@ -1602,6 +1633,7 @@ static void update_input() {
             case KEY_6: gameplay.select |= 64; break;
             case KEY_7: gameplay.select |= 128; break;
 
+            case KEY_TILDE: gameplay.select = 0xff; break;
             case KEY_BACKSPACE: gameplay.select |= 1; break;
 
             case KEY_V:
