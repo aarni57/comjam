@@ -2,3 +2,5 @@
 *.lst
 *.obj
 .DS_Store
+*.ERR
+*.MAP
